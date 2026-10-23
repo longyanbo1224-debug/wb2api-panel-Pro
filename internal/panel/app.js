@@ -2,7 +2,7 @@
 /* ── 状态 ─────────────────────────────────────────────────────────── */
 const LS_KEY = 'wb2api.key', LS_THEME = 'wb2api.theme';
 /* 账号备注与「积分到期提醒」折叠的本机键（同上：模块级声明放顶部，避开 TDZ）。 */
-const LS_REMARKS = 'wb2api.remarks.v1', LS_EXP_FOLD = 'wb2api.expfold.v1';
+const LS_REMARKS = 'wb2api.remarks.v1', LS_EXP_FOLD = 'wb2api.expfold.v1', LS_COMP_FOLD = 'wb2api.compfold.v1';
 let remarksCache = null;
 let theme = localStorage.getItem(LS_THEME) || 'auto';   // auto | light | dark
 let view = 'accounts';
@@ -14,6 +14,7 @@ let mdFilter = { q: '', realm: '', cap: '', effort: '', promo: '', sort: 'defaul
 let mdAll = [], mdProbes = {}, mdProbeOf = () => undefined;
 let mdLocks = [], mdRecent = [];
 let reqFilter = { q: '', outcome: '' };
+let accFilter = 'all', accLast = [];   // 账号池状态筛选：all | active | paused | disabled
 let reqEntries = [];
 let usDim = 'account', usCreditDim = 'account', usSort = 'total';
 let usageData = null;
@@ -281,14 +282,16 @@ function rateLimitMeta(row, now) {
   }
   return { model, kind, detail, title: title.join('\n') };
 }
+// 账号行只放一条汇总：每多一个受限模型都铺一行会把整行撑高、挤乱其他列。
+// 逐模型明细见下方「模型锁池」表，悬停本标签也能看到完整清单。
 function rateLimitRowsHtml(rows, now) {
   const list = Array.isArray(rows) ? rows.filter(row => row && row.model) : [];
   if (!list.length) return '';
-  return '<div class="rate-limits">' + list.map(row => {
-    const m = rateLimitMeta(row, now);
-    return '<div class="rate-limit ' + (m.kind === 'model_unavailable' ? 'model-unavailable' : '') +
-      '" title="' + esc(m.title) + '"><b>' + esc(m.model) + '</b><span>' + esc(m.detail) + '</span></div>';
-  }).join('') + '</div>';
+  const metas = list.map(row => rateLimitMeta(row, now));
+  const title = metas.map(m => m.model + ' · ' + m.detail).join('\n');
+  const allUnavailable = metas.every(m => m.kind === 'model_unavailable');
+  return '<div class="rate-limits" title="' + esc(title) + '"><span class="tag ' +
+    (allUnavailable ? 'mute' : 'warn') + '">' + metas.length + ' 个模型受限</span></div>';
 }
 
 function formatTokenCount(tokens) {
@@ -379,15 +382,29 @@ setTimeout(() => {
 }, 0);
 
 /* ── 账号池 ───────────────────────────────────────────────────────── */
+// accMatchFilter 与状态标的优先级一致：禁用 > 暂停选号 > 启动（含冷却中）。
+function accMatchFilter(s) {
+  if (accFilter === 'disabled') return !!s.disabled;
+  if (accFilter === 'paused') return !s.disabled && !!s.paused;
+  if (accFilter === 'active') return !s.disabled && !s.paused;
+  return true;
+}
+
 function renderAccounts(list) {
+  accLast = list;
+  const shown = list.filter(accMatchFilter);
   const tb = $('accBody');
   if (!list.length) {
     tb.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」，用浏览器登录一个 WorkBuddy 账号</div></td></tr>';
     return;
   }
+  if (!shown.length) {
+    tb.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="big">没有符合筛选的账号</div>切换右上角「筛选」查看其他状态</div></td></tr>';
+    return;
+  }
   // 有总额度（credits_total）→ 进度条按自身 剩余/总额 百分比；旧数据无总额 → 退回池内最高=100%
   const maxCred = Math.max(1, ...list.map(s => s.credits || 0));
-  tb.innerHTML = list.map(s => {
+  tb.innerHTML = shown.map(s => {
     const bl = (new Date(s.breaker_until || 0) - Date.now()) / 1000;
     const dg = (new Date(s.degrade_until || 0) - Date.now()) / 1000;
     const cool = Math.max(s.cool_remaining_sec || 0, bl > 0 ? bl : 0, dg > 0 ? dg : 0);
@@ -533,6 +550,11 @@ async function loadOverview(quiet) {
     if ($('expBox') && !liveFresh) renderExpirySnapshot(d);
   } catch (e) { if (!quiet) toast(e.message, 'err'); }
 }
+
+if ($('accFilter')) $('accFilter').onchange = () => {
+  accFilter = $('accFilter').value;
+  renderAccounts(accLast);
+};
 
 $('accBody').addEventListener('click', async ev => {
   const b = ev.target.closest('button[data-a]');
@@ -3435,3 +3457,22 @@ if ($('btnExpFold')) {
   };
 }
 applyExpFold();
+
+/* ══ 首页「官方补偿」折叠（与到期提醒同口径：默认展开，选择记在本机）═════════
+   卡片本身仍由 loadCompensation 控制 hidden；这里只切列表容器，标题与按钮常显。 */
+function compFolded() { return localStorage.getItem(LS_COMP_FOLD) === '1'; }
+function applyCompFold() {
+  const pad = $('compPad'), btn = $('btnCompFold');
+  if (!pad || !btn) return;
+  const folded = compFolded();
+  pad.hidden = folded;
+  btn.textContent = folded ? '展开' : '收起';
+  btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+}
+if ($('btnCompFold')) {
+  $('btnCompFold').onclick = () => {
+    try { localStorage.setItem(LS_COMP_FOLD, compFolded() ? '0' : '1'); } catch (e) {}
+    applyCompFold();
+  };
+}
+applyCompFold();

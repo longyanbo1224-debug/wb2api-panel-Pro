@@ -1380,7 +1380,7 @@ func TestPanelRemarkAndFoldWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`id="btnRemarks"`, `id="remarkVeil"`, `id="remarkBody"`, `id="btnRemarkSave"`, `id="btnRemarkClear"`, `id="expPad"`, `id="btnExpFold"`} {
+	for _, want := range []string{`id="btnRemarks"`, `id="remarkVeil"`, `id="remarkBody"`, `id="btnRemarkSave"`, `id="btnRemarkClear"`, `id="expPad"`, `id="btnExpFold"`, `id="compPad"`, `id="btnCompFold"`, `id="accFilter"`} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Fatalf("index.html 缺少 %s", want)
 		}
@@ -1398,9 +1398,12 @@ func TestPanelRemarkAndFoldWiring(t *testing.T) {
 	for _, want := range []string{
 		"LS_REMARKS = 'wb2api.remarks.v1'",
 		"LS_EXP_FOLD = 'wb2api.expfold.v1'",
+		"LS_COMP_FOLD = 'wb2api.compfold.v1'",
 		"function remarkKey(",
 		"function remarkName(",
 		"function applyExpFold(",
+		"function applyCompFold(",
+		"function accMatchFilter(",
 	} {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Fatalf("app.js 缺少 %s", want)
