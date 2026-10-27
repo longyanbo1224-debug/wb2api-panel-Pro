@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/upstream"
 )
 
 // newSearchUpstream 构造指向 httptest 假上游的 upstream.Client（CN 域）。

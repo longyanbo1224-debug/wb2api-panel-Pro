@@ -16,16 +16,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/httpauth"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/livecfg"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/logfmt"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/prompt"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/reqlog"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/session"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/usage"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/httpauth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/livecfg"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/logfmt"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/pool"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/prompt"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/reqlog"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/session"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/upstream"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/usage"
 )
 
 // Config handler 依赖。

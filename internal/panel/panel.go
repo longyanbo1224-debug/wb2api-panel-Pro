@@ -21,15 +21,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/credithist"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/httpauth"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/livecfg"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/reqlog"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/scheduler"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/usage"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/credithist"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/httpauth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/livecfg"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/pool"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/reqlog"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/scheduler"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/upstream"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/usage"
 )
 
 // Config 面板依赖（main 装配注入）。

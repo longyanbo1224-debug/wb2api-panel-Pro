@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/credithist"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/credithist"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/pool"
 )
 
 // limit 口径：默认 200、上限 1000；0 / 负数 / 非法 / 溢出 / 空 一律回落 200。

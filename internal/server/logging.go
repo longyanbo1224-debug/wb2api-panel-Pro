@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/logfmt"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/reqlog"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/logfmt"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/pool"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/reqlog"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/upstream"
 )
 
 // maxUserAgentLen 归档与面板展示保留的 UA 字节上限。UA 是客户端完全可控的

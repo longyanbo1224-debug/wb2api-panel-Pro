@@ -34,9 +34,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/logfmt"
-	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/logfmt"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/upstream"
 )
 
 // autoAction 一个可自动化的任务动作。

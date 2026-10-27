@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/redisstore"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/redisstore"
 )
 
 // entry 单条会话绑定。

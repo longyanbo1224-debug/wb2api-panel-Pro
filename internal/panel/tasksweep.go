@@ -26,7 +26,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
 )
 
 // TaskSweepStats 一轮补领清扫的汇总（供日志与潜在的未来 HTTP 回执）。

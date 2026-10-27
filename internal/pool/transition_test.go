@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
 )
 
 // 状态机迁移正交性测试：聚焦 transition.go 收敛出的「单一权威状态机」语义。
