@@ -1219,6 +1219,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <header>
           <h3>积分历史 <span class="hint">每次真实查到余额与上次比对，变动即留痕</span></h3>
           <span class="grow"></span>
+          <span class="note" id="creditSumNote"></span>
           <span class="note" id="creditNote">—</span>
         </header>
         <div class="fbar">
@@ -1229,6 +1230,15 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
           </select>
           <span class="grow"></span>
           <button class="xs" id="btnCreditReload">重新读取</button>
+        </div>
+        <div class="tbl-wrap" id="creditSumWrap" hidden>
+          <table class="acc">
+            <thead><tr>
+              <th>账号汇总</th><th class="num">今日涨</th><th class="num">今日消耗</th>
+              <th class="num">累计涨</th><th class="num">累计消耗</th>
+            </tr></thead>
+            <tbody id="creditSumBody"></tbody>
+          </table>
         </div>
         <div class="tbl-wrap">
           <table class="acc">

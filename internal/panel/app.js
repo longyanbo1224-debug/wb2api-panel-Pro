@@ -265,6 +265,7 @@ function rateLimitMeta(row, now) {
     };
   }
   const title = [model, resetAt ? '上游重置：' + fmtLocalDateTime(resetAt) : '上游重置：时间未知'];
+  let detail; // 严格模式：分支内直接赋值会抛 ReferenceError，整行渲染中断
   if (until && resetAt && until < resetAt) {
     // 双时钟（issue #171 问题二）：黄框出现/消失由 until 决定（网关为防超长
     // 限流拖死全池，把重试封顶在 now+softRateMax），主文字却按 resetAt 显示，
@@ -974,19 +975,57 @@ function creditEntryText(e) {
 function creditHistoryNote(entries) {
   entries = entries || [];
   if (!entries.length) return '暂无积分变动记录';
-  let net = 0;
-  for (const e of entries) net += Number(e && e.delta || 0);
-  return entries.length + ' 条 · 净 ' + (net > 0 ? '+' : net < 0 ? '−' : '') + creditNum(Math.abs(net));
+  let gain = 0, spent = 0;
+  for (const e of entries) {
+    const d = Number(e && e.delta || 0);
+    if (d > 0) gain += d;
+    else spent -= d;
+  }
+  return entries.length + ' 条 · 涨 ' + creditDeltaText(gain) + ' · 消耗 ' + creditNum(spent);
+}
+// creditSummaryText 汇总行：今日/累计的获取与消耗分开显示。
+// 净额（涨−消耗）看不出"领了多少、花掉多少"，故不采用。
+// 累计来自账本持久统计，不随流水 2000 条上限滚动；since 为开始记录时间。
+function creditSummaryText(s) {
+  if (!s) return '';
+  let t = '今日涨 +' + creditNum(s.today_gain) + ' · 今日消耗 ' + creditNum(s.today_spent) +
+    ' · 累计涨 +' + creditNum(s.total_gain) + ' · 累计消耗 ' + creditNum(s.total_spent);
+  if (s.since) {
+    const d = new Date(s.since);
+    if (!isNaN(d.getTime())) t += ' · 自 ' + (d.getMonth() + 1) + '-' + d.getDate();
+  }
+  return t;
+}
+function renderCreditSummary(s) {
+  const wrap = $('creditSumWrap'), body = $('creditSumBody'), note = $('creditSumNote');
+  if (!wrap || !body) return;
+  const rows = (s && s.accounts) || [];
+  if (!rows.length) {
+    wrap.hidden = true;
+    if (note) note.textContent = '';
+    return;
+  }
+  wrap.hidden = false;
+  if (note) note.textContent = creditSummaryText(s);
+  body.innerHTML = rows.map(a => '<tr>' +
+    '<td>' + esc(a.account || a.uid || '—') + '</td>' +
+    '<td class="num">' + esc(creditDeltaText(a.today_gain)) + '</td>' +
+    '<td class="num">' + esc(creditNum(a.today_spent)) + '</td>' +
+    '<td class="num">' + esc(creditDeltaText(a.total_gain)) + '</td>' +
+    '<td class="num">' + esc(creditNum(a.total_spent)) + '</td>' +
+    '</tr>').join('');
 }
 function renderCreditHistory(d) {
   const body = $('creditBody'), note = $('creditNote');
   if (!body) return;
   if (!d) {
+    renderCreditSummary(null);
     if (note) note.textContent = '积分历史不可用';
     body.innerHTML = '<tr><td colspan="5" style="color:var(--ink-3)">积分历史不可用</td></tr>';
     return;
   }
   const entries = d.entries || [];
+  renderCreditSummary(d.summary);
   if (note) note.textContent = creditHistoryNote(entries);
   body.innerHTML = entries.length
     ? entries.map(e => '<tr>' +
@@ -1612,6 +1651,11 @@ const AUTO_TASKS = {
   'create_canvas': '上报「设计创意画布创建」事件组（三账号实测点亮，+300 分）',
   'expert_5': '真实专家召唤+使用链 ×5（专家市场+真实 chat，三账号实测点亮）',
   'Expert_team_use_3': '真实专家团召唤+使用链 ×3（三账号实测点亮）',
+  'expert_use_maidehao': '召唤「中国电商运营专家」+ 真实对话一次',
+  'expert_use_douyinyin': '召唤「抖音策略师」+ 真实对话一次',
+  'expert_use_shangjia_xuanchuan': '召唤「商家宣传页与海报设计师」+ 真实对话一次',
+  'expert_use_bowangwang': '召唤「直播电商教练」+ 真实对话一次',
+  'WorkBuddy_Valorant': '召唤「无畏契约拼豆专家」+ 真实对话一次（判据待实测）',
   'Hp_Appearance': '设置主题 API + 皮肤生效事件（两账号实测点亮）',
   'black_cat': '夜猫子：23:00–08:00 窗口内 glm-5.2 对话补足（窗口外提示等 23 点排程）',
   'Expert_lighthouse': '真实轻量云专家召唤+使用链（真实对话 requestId，两账号实测点亮）',
@@ -2050,7 +2094,7 @@ function groupItems(d) {
     const rows = [];
     for (const t of (a.growth || [])) {
       GROWTH_TITLES[t.task_code] = t.title || t.task_code;
-      rows.push({ kind: 'growth', code: t.task_code, prog: t.target ? t.current + '/' + t.target : '—', status: 'scan' });
+      rows.push({ kind: 'growth', code: t.task_code, prog: t.target ? t.current + '/' + t.target : '—', credit: t.credit, energy: t.energy, status: 'scan' });
     }
     if (rows.length) groups.push({ uid: a.uid, nick: a.nickname, rows });
   }
@@ -2060,11 +2104,12 @@ const ST_WORDS = { done: '完成', running: '执行中', error: '失败', skippe
 function qrowHTML(it) {
   const isSchool = it.kind === 'school';
   const title = isSchool ? '开学季闭环' : (GROWTH_TITLES[it.code] || it.code);
+  const reward = [it.credit ? '+' + it.credit + ' 分' : '', it.energy ? '+' + it.energy + ' 能' : ''].filter(Boolean).join(' ');
   const dotCls = it.status === 'scan' ? 'wait' : it.status === 'running' ? 'run' : it.status === 'error' ? 'err' : it.status === 'skipped' ? 'skip' : it.status === 'done' ? 'done' : 'wait';
   const stWord = it.status === 'scan' ? '待执行' : (ST_WORDS[it.status] || it.status);
   return '<div class="qrow" title="' + esc(it.message || '') + '">' +
     '<span class="code">' + esc(it.code) + '</span>' +
-    '<span class="name"><span class="t">' + esc(title) + '</span>' + (isSchool ? '<span class="tag mute">开学季</span>' : '') + '</span>' +
+    '<span class="name"><span class="t">' + esc(title) + '</span>' + (isSchool ? '<span class="tag mute">开学季</span>' : '') + (reward ? '<span class="tag ok">' + esc(reward) + '</span>' : '') + '</span>' +
     '<span class="prog">' + esc(it.prog || '') + '</span>' +
     '<span class="st"><span class="qdot ' + dotCls + '"></span>' + stWord + '</span>' +
     '<span class="msg">' + esc(it.message || '') + '</span>' +
@@ -2107,6 +2152,7 @@ function groupsFromQueue(items) {
     by.get(it.uid).rows.push({
       kind: it.kind, code: it.code,
       prog: it.kind === 'school' ? '—' : '',
+      credit: it.credit, energy: it.energy,
       status: it.status, message: it.message,
     });
   }

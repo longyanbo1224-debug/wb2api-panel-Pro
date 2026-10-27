@@ -12,6 +12,8 @@
 //   - template_5 / playbook_prompt / create_canvas：asar 逆向出的判据事件
 //     （template_used / playbook_prompt_send / wbx_design_canvas_*），纯 API 可点亮（三账号实测）
 //   - expert_5 / Expert_team_use_3：真实专家列表 + 召唤链 + 真实 chat（服务端 requestId）
+//   - expert_use_* / WorkBuddy_Valorant：「体验指定专家」任务，专家 id 来自任务
+//     deeplink（Valorant 按市场名检索），复用 expert_5 的召唤+使用链（判据待实测）
 //   - expert_actual_use（三账号实测）
 //   - Hp_Appearance：appearance/set + appearance_skin_apply 事件（两账号实测）
 //
@@ -112,6 +114,34 @@ var autoActions = []autoAction{
 		TaskCode: "Expert_team_use_3",
 		Desc:     "真实专家团召唤+使用链 ×3（已验证：三账号点亮）",
 		run:      runExpertTeamUse,
+	},
+	{
+		TaskCode: "expert_use_maidehao",
+		Desc:     "召唤「中国电商运营专家」（卖得好）+ 真实对话一次",
+		run:      func(p *Panel, a *auth.Auth) (string, error) { return runExpertUseTarget(p, a, "expert_use_maidehao") },
+	},
+	{
+		TaskCode: "expert_use_douyinyin",
+		Desc:     "召唤「抖音策略师」（斗音音）+ 真实对话一次",
+		run:      func(p *Panel, a *auth.Auth) (string, error) { return runExpertUseTarget(p, a, "expert_use_douyinyin") },
+	},
+	{
+		TaskCode: "expert_use_shangjia_xuanchuan",
+		Desc:     "召唤「商家宣传页与海报设计师」+ 真实对话一次",
+		run: func(p *Panel, a *auth.Auth) (string, error) {
+			return runExpertUseTarget(p, a, "expert_use_shangjia_xuanchuan")
+		},
+	},
+	{
+		TaskCode: "expert_use_bowangwang",
+		Desc:     "召唤「直播电商教练」（播旺旺）+ 真实对话一次",
+		run:      func(p *Panel, a *auth.Auth) (string, error) { return runExpertUseTarget(p, a, "expert_use_bowangwang") },
+	},
+	{
+		TaskCode: "WorkBuddy_Valorant",
+		Desc:     "召唤「无畏契约拼豆专家」+ 真实对话一次（判据待实测）",
+		Attempt:  true,
+		run:      func(p *Panel, a *auth.Auth) (string, error) { return runExpertUseTarget(p, a, "WorkBuddy_Valorant") },
 	},
 	{
 		TaskCode: "Hp_Appearance",
@@ -1121,6 +1151,45 @@ func runExpertBatch(p *Panel, a *auth.Auth, expertType string, count int) (strin
 	}
 	_ = fail
 	return fmt.Sprintf("已对 %d 位真实专家完成召唤+使用链（类型 %s）", ok, expertType), nil
+}
+
+// expertUseTargets 「体验指定专家」类任务 → 专家实体。expert_id 取自任务
+// jump_url 的 expertId 参数（WorkBuddy_Valorant 无 deeplink，按市场名检索），
+// 名称/版本取自专家市场实际下发（2026-10-27 实测）。判据与 expert_5 同形状：
+// 召唤链 + expert_actual_use（JOIN 真实 chat 的服务端 requestId）。
+var expertUseTargets = map[string]upstream.MarketExpert{
+	"expert_use_maidehao":           {ExpertID: "ex_GDl31WahyIH0", ExpertType: "agent", DisplayNameZH: "卖得好", ProfessionZH: "中国电商运营专家", Version: "1.0.1"},
+	"expert_use_douyinyin":          {ExpertID: "ex_FbY5nlWTqDod", ExpertType: "agent", DisplayNameZH: "斗音音", ProfessionZH: "抖音策略师", Version: "1.0.2"},
+	"expert_use_shangjia_xuanchuan": {ExpertID: "ex_Weo3x2EZuSDm", ExpertType: "agent", DisplayNameZH: "商家宣传设计师", ProfessionZH: "商家宣传页与海报设计师", Version: "1.6.0"},
+	"expert_use_bowangwang":         {ExpertID: "ex_WZY136wV5aMt", ExpertType: "agent", DisplayNameZH: "播旺旺", ProfessionZH: "直播电商教练", Version: "1.0.2"},
+	"WorkBuddy_Valorant":            {ExpertID: "ex_xQHHD1u5Jkua", ExpertType: "agent", DisplayNameZH: "无畏契约拼豆专家", ProfessionZH: "无畏契约拼豆专家", Version: "1.2.7"},
+}
+
+// runExpertUseTarget 完成「体验指定专家」任务：accept → 召唤链 → 真实对话
+// （取服务端 requestId）→ expert_actual_use。即 runExpertBatch 的单轮版。
+func runExpertUseTarget(p *Panel, a *auth.Auth, code string) (string, error) {
+	e, ok := expertUseTargets[code]
+	if !ok {
+		return "", fmt.Errorf("任务 %s 未配置专家目标", code)
+	}
+	// accept 幂等；失败不阻塞（进度判据是行为事件）。
+	if err := p.cfg.Upstream.AcceptTasks(a, []string{code}); err != nil {
+		log.Printf("autotask %s %s: accept: %v（继续走行为链路）", logfmt.Label(a.UID, a.Nickname), code, err)
+	}
+	time.Sleep(reportGap)
+	if err := p.cfg.Upstream.ReportDesktopEvent(a, upstream.DesktopExpertSummonSequence(e)...); err != nil {
+		return "", fmt.Errorf("召唤链: %w", err)
+	}
+	conv, req, err := p.cfg.Upstream.DesktopChatWithExpert(a, e.ExpertID)
+	if err != nil {
+		return "", fmt.Errorf("真实对话: %w", err)
+	}
+	events := append(upstream.DesktopChatSequence(conv, req, "msg-"+req[len(req)-8:], "fast-model", "fast-model"),
+		upstream.DesktopExpertActualUseEvent(e, conv, req))
+	if err := p.cfg.Upstream.ReportDesktopEvent(a, events...); err != nil {
+		return "", fmt.Errorf("使用事件: %w", err)
+	}
+	return "已召唤「" + e.DisplayNameZH + "」并完成一次真实对话", nil
 }
 
 // ---------------------------------------------------------------------------

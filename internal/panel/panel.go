@@ -278,8 +278,8 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 		"model_locks": p.cfg.Pool.ModelLockView(),
 		// 到期提醒快照的节奏与年龄：界面轮询是 5 秒级，但卡片数据只随余额后台刷新
 		// 更新（默认每 5 分钟）——把这两个数透出，前端才能如实标注「x 分钟前更新」。
-		"balance_refresh_sec":    p.balanceRefreshSec(),
-		"balance_refreshed_at":   p.balanceRefreshedAt(),
+		"balance_refresh_sec":  p.balanceRefreshSec(),
+		"balance_refreshed_at": p.balanceRefreshedAt(),
 	})
 }
 
@@ -353,6 +353,106 @@ func (p *Panel) requestLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entries": rows, "limit": limit})
 }
 
+// creditAccountSum 单账号积分汇总：今日（本地自然日）与累计的获取/消耗。
+// 涨与消耗分开统计：净额（涨−消耗）无法说明"领了多少、花掉多少"。
+type creditAccountSum struct {
+	UID        string `json:"uid"`
+	Account    string `json:"account"`
+	TodayGain  int64  `json:"today_gain"`
+	TodaySpent int64  `json:"today_spent"`
+	TotalGain  int64  `json:"total_gain"`
+	TotalSpent int64  `json:"total_spent"`
+}
+
+// creditSummary 积分汇总：全池今日/累计 + 逐账号明细。
+// 累计取自账本的持久 Tally（不受流水条数上限影响），Since 为开始记录的时间。
+type creditSummary struct {
+	TodayGain  int64              `json:"today_gain"`
+	TodaySpent int64              `json:"today_spent"`
+	TotalGain  int64              `json:"total_gain"`
+	TotalSpent int64              `json:"total_spent"`
+	Since      time.Time          `json:"since,omitempty"`
+	Accounts   []creditAccountSum `json:"accounts"`
+}
+
+// summarizeCredits 汇总流水与累计（entries 为 Read 的新的在前顺序）。
+// 今日涨/消耗来自流水；累计涨/消耗来自 since/totals（流水截断不影响）。
+// seed 为池内 uid→昵称：即使今日无变动也列出该账号，明细才不会"缺号"。
+// uid 非空时只统计该账号（与 entries 的 uid 过滤同口径）。
+func summarizeCredits(entries []credithist.Entry, seed map[string]string, uid string, since time.Time, totals map[string]credithist.Tally) creditSummary {
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	byUID := make(map[string]*creditAccountSum, len(seed))
+	get := func(id string) *creditAccountSum {
+		s := byUID[id]
+		if s == nil {
+			s = &creditAccountSum{UID: id, Account: seed[id]}
+			if s.Account == "" {
+				s.Account = id
+			}
+			if t, ok := totals[id]; ok {
+				s.TotalGain, s.TotalSpent = t.Gain, t.Spent
+			}
+			byUID[id] = s
+		}
+		return s
+	}
+	for id := range seed {
+		if uid == "" || id == uid {
+			get(id)
+		}
+	}
+	for id := range totals {
+		if uid != "" && id != uid {
+			continue
+		}
+		get(id)
+	}
+	var sum creditSummary
+	for id, t := range totals {
+		if uid != "" && id != uid {
+			continue
+		}
+		sum.TotalGain += t.Gain
+		sum.TotalSpent += t.Spent
+	}
+	for _, e := range entries {
+		if uid != "" && e.UID != uid {
+			continue
+		}
+		if e.Time.Before(dayStart) {
+			continue
+		}
+		a := get(e.UID)
+		if e.Delta > 0 {
+			sum.TodayGain += e.Delta
+			a.TodayGain += e.Delta
+		} else {
+			sum.TodaySpent -= e.Delta
+			a.TodaySpent -= e.Delta
+		}
+	}
+	sum.Since = since
+	if sum.Since.IsZero() && len(entries) > 0 {
+		sum.Since = entries[len(entries)-1].Time // 新的在前：末条最早
+	}
+	sum.Accounts = make([]creditAccountSum, 0, len(byUID))
+	for _, a := range byUID {
+		sum.Accounts = append(sum.Accounts, *a)
+	}
+	sort.Slice(sum.Accounts, func(i, j int) bool {
+		a, b := sum.Accounts[i], sum.Accounts[j]
+		if a.TodayGain != b.TodayGain {
+			return a.TodayGain > b.TodayGain
+		}
+		if a.TotalGain != b.TotalGain {
+			return a.TotalGain > b.TotalGain
+		}
+		return a.Account < b.Account
+	})
+	return sum
+}
+
 // creditHistory 返回积分变动流水（新的在前），供「运行日志 → 积分历史」展示。
 // limit 默认 200、上限 1000（与 requestLogs 同口径）；可带 uid 精确过滤。
 // 账号昵称在读取时用池快照填充——账本只存 uid，上游改名后旧流水也跟着更新，
@@ -373,13 +473,18 @@ func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.URL.Query().Get("uid")
 	nicks := p.nicknames()
-	// 有 uid 过滤时必须先全量取回（账本上限默认 2000 条）：先截断再过滤会让
-	// 筛选后的条数看起来像历史缺失。无过滤时只取 limit 条，不为一次展示拷贝整个账本。
-	readLimit := limit
-	if uid != "" {
-		readLimit = 0
+	// 汇总的账号种子用池全量 uid（含无昵称的账号）；nicknames() 只收有昵称的条目，
+	// 直接拿它当种子会让未命名账号在「今日无变动」时从汇总表里消失。
+	seed := make(map[string]string)
+	if p.cfg.Pool != nil {
+		for _, s := range p.cfg.Pool.List() {
+			seed[s.UID] = s.Nickname
+		}
 	}
-	all := p.cfg.CreditHistory.Read(readLimit)
+	// 汇总需要整本流水，故总是全量取回（账本上限默认 2000 条，拷贝成本可忽略）；
+	// 输出条目再按 uid/limit 截断。累计取自持久 Tally，不受该上限影响。
+	all := p.cfg.CreditHistory.Read(0)
+	since, totals := p.cfg.CreditHistory.Lifetime()
 	out := make([]map[string]any, 0, limit)
 	for _, e := range all {
 		if uid != "" && e.UID != uid {
@@ -397,7 +502,11 @@ func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "limit": limit})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": out,
+		"limit":   limit,
+		"summary": summarizeCredits(all, seed, uid, since, totals),
+	})
 }
 
 // nicknames 池内 uid → 昵称映射（仅展示用，不含任何凭证）。

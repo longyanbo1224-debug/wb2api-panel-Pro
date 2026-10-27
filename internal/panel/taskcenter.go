@@ -126,8 +126,11 @@ type queueItem struct {
 	Nickname string `json:"nickname"`
 	Kind     string `json:"kind"` // growth
 	Code     string `json:"code"`
-	Status   string `json:"status"` // pending | running | done | skipped | error
-	Message  string `json:"message,omitempty"`
+	// Credit/Energy 该任务奖励，随扫描带出供前端展示「做完能加多少」。
+	Credit  int64  `json:"credit,omitempty"`
+	Energy  int64  `json:"energy,omitempty"`
+	Status  string `json:"status"` // pending | running | done | skipped | error
+	Message string `json:"message,omitempty"`
 }
 
 // queueState 队列运行状态。Seq 每次启动 +1——前端只渲染"自己启动的那一轮"，
@@ -273,7 +276,7 @@ func (p *Panel) startGrowthQueue(concurrency int, growth bool) (started bool, to
 	var items []queueItem
 	for _, one := range accts {
 		for _, t := range one.grow {
-			items = append(items, queueItem{UID: one.a.UID, Nickname: one.a.Nickname, Kind: "growth", Code: t.TaskCode, Status: "pending"})
+			items = append(items, queueItem{UID: one.a.UID, Nickname: one.a.Nickname, Kind: "growth", Code: t.TaskCode, Credit: t.Credit, Energy: t.Energy, Status: "pending"})
 		}
 	}
 	if len(items) == 0 {

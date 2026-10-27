@@ -293,7 +293,7 @@ const ctx = { Date, Number, String, Math, RegExp, isNaN };
 vm.createContext(ctx);
 vm.runInContext(
   src.slice(start, end) +
-  '\nthis.creditEntryText=creditEntryText;this.creditHistoryNote=creditHistoryNote;',
+  '\nthis.creditEntryText=creditEntryText;this.creditHistoryNote=creditHistoryNote;this.creditSummaryText=creditSummaryText;',
   ctx
 );
 const time = new Date(2026, 8, 28, 14, 5, 6).toISOString();
@@ -302,6 +302,7 @@ process.stdout.write(JSON.stringify({
   loss: ctx.creditEntryText({ time, uid: '89374120', account: '', delta: -30, before: 1400, after: 1370 }),
   note: ctx.creditHistoryNote([{ delta: 1300 }, { delta: -60 }]),
   empty: ctx.creditHistoryNote([]),
+  summary: ctx.creditSummaryText({ today_gain: 1300, today_spent: 60, total_gain: 5000, total_spent: 200, since: new Date(2026, 9, 24, 8, 0, 0).toISOString() }),
 }));`
 	f, err := os.CreateTemp(t.TempDir(), "credit-history-format-*.cjs")
 	if err != nil {
@@ -318,7 +319,8 @@ process.stdout.write(JSON.stringify({
 	gain := "14:05:06 | 小明 | +100 | 1,400 | 余额 1,300 → 1,400"
 	loss := "14:05:06 | 89374120 | −30 | 1,370 | 余额 1,400 → 1,370"
 	want := `{"gain":` + strconv.Quote(gain) + `,"loss":` + strconv.Quote(loss) +
-		`,"note":"2 条 · 净 +1,240","empty":"暂无积分变动记录"}`
+		`,"note":"2 条 · 涨 +1,300 · 消耗 60","empty":"暂无积分变动记录",` +
+		`"summary":"今日涨 +1,300 · 今日消耗 60 · 累计涨 +5,000 · 累计消耗 200 · 自 10-24"}`
 	if strings.TrimSpace(string(out)) != want {
 		t.Fatalf("credit history formatting=%s want %s", out, want)
 	}
@@ -1521,4 +1523,3 @@ process.stdout.write(JSON.stringify({
 			strings.TrimSpace(string(out)), want)
 	}
 }
-

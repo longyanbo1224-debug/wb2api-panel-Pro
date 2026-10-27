@@ -43,13 +43,23 @@ type Entry struct {
 // fileVersion 落盘格式版本（与 usage.json 同风格，便于将来迁移）。
 const fileVersion = 1
 
-// diskFile 落盘结构：余额快照（uid → 最近余额）与流水同文件——重启后基线不丢，
-// 不会把"上次进程结束时的余额"当成新增。
+// Tally 累计获取/消耗（按余额变动的带符号增量累加）。
+// 单独持久化：流水有 maxEntries 上限，累计不能随窗口滚动而丢失。
+type Tally struct {
+	Gain  int64 `json:"gain"`
+	Spent int64 `json:"spent"`
+}
+
+// diskFile 落盘结构：余额快照（uid → 最近余额）、流水与累计同文件——重启后
+// 基线不丢，不会把"上次进程结束时的余额"当成新增；累计也不受流水截断影响。
 type diskFile struct {
 	Version  int              `json:"version"`
 	Saved    string           `json:"saved,omitempty"`
 	Snapshot map[string]int64 `json:"snapshot"`
 	Entries  []Entry          `json:"entries"`
+	// Since/Totals 为累计口径（v1 旧文件没有这两个字段，加载时由保留的流水回填）。
+	Since  time.Time        `json:"since,omitempty"`
+	Totals map[string]Tally `json:"totals,omitempty"`
 }
 
 // Ledger 并发安全的积分账本。path 为空 = 纯内存（不落盘）。
@@ -59,6 +69,8 @@ type Ledger struct {
 	max      int
 	snapshot map[string]int64
 	entries  []Entry // 时间升序
+	since    time.Time
+	totals   map[string]Tally // uid → 累计获取/消耗（不受 max 截断）
 }
 
 // New 创建账本；path 非空且文件存在时加载既有快照与流水。加载失败只记日志、
@@ -67,7 +79,7 @@ func New(path string, maxEntries int) *Ledger {
 	if maxEntries <= 0 {
 		maxEntries = defaultMaxEntries
 	}
-	l := &Ledger{path: path, max: maxEntries, snapshot: map[string]int64{}}
+	l := &Ledger{path: path, max: maxEntries, snapshot: map[string]int64{}, totals: map[string]Tally{}}
 	l.load()
 	return l
 }
@@ -95,6 +107,24 @@ func (l *Ledger) load() {
 	l.entries = f.Entries
 	if len(l.entries) > l.max {
 		l.entries = append([]Entry(nil), l.entries[len(l.entries)-l.max:]...)
+	}
+	l.since, l.totals = f.Since, f.Totals
+	if l.totals == nil {
+		// v1 旧文件没有累计字段：用当前保留的流水回填（更早已被截断的流水
+		// 无从恢复，Since 也取保留部分的第一条）。
+		l.totals = map[string]Tally{}
+		for _, e := range l.entries {
+			t := l.totals[e.UID]
+			if e.Delta > 0 {
+				t.Gain += e.Delta
+			} else {
+				t.Spent -= e.Delta
+			}
+			l.totals[e.UID] = t
+		}
+		if l.since.IsZero() && len(l.entries) > 0 {
+			l.since = l.entries[0].Time
+		}
 	}
 	log.Printf("[credithist] 已恢复 %d 条积分流水 / %d 个余额基线（%s）",
 		len(l.entries), len(l.snapshot), l.path)
@@ -124,13 +154,25 @@ func (l *Ledger) Observe(uid string, credits int64) {
 	l.snapshot[uid] = credits
 	if seen {
 		if delta := credits - prev; delta >= -maxDelta && delta <= maxDelta {
+			now := time.Now()
 			l.entries = append(l.entries, Entry{
-				Time:   time.Now(),
+				Time:   now,
 				UID:    uid,
 				Delta:  delta,
 				Before: prev,
 				After:  credits,
 			})
+			// 累计在截断之前先记账：流水丢了，累计仍要保留。
+			t := l.totals[uid]
+			if delta > 0 {
+				t.Gain += delta
+			} else {
+				t.Spent -= delta
+			}
+			l.totals[uid] = t
+			if l.since.IsZero() {
+				l.since = now
+			}
 			if len(l.entries) > l.max {
 				// 丢最旧：copy 到新底层数组，避免 append 复用旧数组导致内存不释放。
 				l.entries = append([]Entry(nil), l.entries[len(l.entries)-l.max:]...)
@@ -142,6 +184,8 @@ func (l *Ledger) Observe(uid string, credits int64) {
 		Saved:    time.Now().Format(time.RFC3339),
 		Snapshot: l.snapshot,
 		Entries:  l.entries,
+		Since:    l.since,
+		Totals:   l.totals,
 	})
 	if err != nil {
 		l.mu.Unlock()
@@ -171,6 +215,21 @@ func (l *Ledger) Read(limit int) []Entry {
 		out = append(out, l.entries[i])
 	}
 	return out
+}
+
+// Lifetime 返回累计口径：since 为账本开始记录的时刻，totals 为 uid → 累计获取/消耗。
+// 累计不受 maxEntries 截断影响（流水滚动丢最旧时累计仍保留）。返回副本。
+func (l *Ledger) Lifetime() (time.Time, map[string]Tally) {
+	if l == nil {
+		return time.Time{}, nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make(map[string]Tally, len(l.totals))
+	for uid, t := range l.totals {
+		out[uid] = t
+	}
+	return l.since, out
 }
 
 // write 原子写盘（临时文件 + rename，与 usage.Recorder 同口径）。失败只记日志：

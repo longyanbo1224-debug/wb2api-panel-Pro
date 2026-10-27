@@ -38,6 +38,22 @@ type creditResp struct {
 		After   int64  `json:"after"`
 	} `json:"entries"`
 	Limit int `json:"limit"`
+	// Summary 聚合口径：涨/消耗分开统计；累计来自账本持久 Tally。
+	Summary struct {
+		TodayGain  int64  `json:"today_gain"`
+		TodaySpent int64  `json:"today_spent"`
+		TotalGain  int64  `json:"total_gain"`
+		TotalSpent int64  `json:"total_spent"`
+		Since      string `json:"since"`
+		Accounts   []struct {
+			UID        string `json:"uid"`
+			Account    string `json:"account"`
+			TodayGain  int64  `json:"today_gain"`
+			TodaySpent int64  `json:"today_spent"`
+			TotalGain  int64  `json:"total_gain"`
+			TotalSpent int64  `json:"total_spent"`
+		} `json:"accounts"`
+	} `json:"summary"`
 }
 
 // 接口形状：新的在前、字段齐全、昵称由池快照填充（账本只存 uid）。
@@ -76,6 +92,50 @@ func TestCreditHistoryEndpointShape(t *testing.T) {
 	}
 	if out.Entries[0].Time == "" {
 		t.Fatal("time 不应为空")
+	}
+	// 汇总：两条正变动都在今日，涨=120、消耗=0；累计同口径；明细按今日涨降序。
+	s := out.Summary
+	if s.TodayGain != 120 || s.TodaySpent != 0 || s.TotalGain != 120 || s.TotalSpent != 0 {
+		t.Fatalf("汇总数值不符: %+v", s)
+	}
+	if s.Since == "" {
+		t.Fatal("since 应为窗口内最早一条的时间")
+	}
+	if len(s.Accounts) != 2 {
+		t.Fatalf("应有 u1/u2 两行账号汇总，得到 %+v", s.Accounts)
+	}
+	if s.Accounts[0].UID != "u1" || s.Accounts[0].Account != "小明" || s.Accounts[0].TodayGain != 100 {
+		t.Fatalf("u1 汇总不符: %+v", s.Accounts[0])
+	}
+	if s.Accounts[1].UID != "u2" || s.Accounts[1].Account != "u2" || s.Accounts[1].TodayGain != 20 {
+		t.Fatalf("u2 汇总不符（池内无昵称应回 uid）: %+v", s.Accounts[1])
+	}
+}
+
+// 涨/消耗分立统计：净额（涨−消耗）会掩盖"领了多少、花掉多少"，汇总必须分开。
+func TestCreditHistorySummaryGainAndSpent(t *testing.T) {
+	l := credithist.New("", 100)
+	l.Observe("u1", 1000)
+	l.Observe("u1", 1200) // +200
+	l.Observe("u1", 1100) // -100
+	code, body := creditGet(t, creditPanel(t, l), "")
+	if code != 200 {
+		t.Fatalf("-> %d %s", code, body)
+	}
+	var out creditResp
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatal(err)
+	}
+	s := out.Summary
+	if s.TodayGain != 200 || s.TodaySpent != 100 || s.TotalGain != 200 || s.TotalSpent != 100 {
+		t.Fatalf("涨/消耗汇总不符: %+v", s)
+	}
+	if len(s.Accounts) != 1 {
+		t.Fatalf("应只有 u1 一行，得到 %+v", s.Accounts)
+	}
+	a := s.Accounts[0]
+	if a.UID != "u1" || a.TodayGain != 200 || a.TodaySpent != 100 || a.TotalGain != 200 || a.TotalSpent != 100 {
+		t.Fatalf("u1 明细不符: %+v", a)
 	}
 }
 

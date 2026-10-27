@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // 首次见到账号只建基线：把历史余额误报成「刚获得」是最刺眼的错误，
@@ -138,6 +139,47 @@ func TestCorruptFileFallsBackToEmpty(t *testing.T) {
 	got := l.Read(0)
 	if len(got) != 1 || got[0].Delta != 100 {
 		t.Fatalf("损坏文件后应能正常建基线并记账，得到 %+v", got)
+	}
+}
+
+// 累计不受流水截断影响：maxEntries 丢最旧时，Tally 仍保留全量获取/消耗；
+// 重启后累计从文件恢复。
+func TestLifetimeSurvivesTrimAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credit-history.json")
+	l := New(path, 2) // 流水只留 2 条，累计必须留全量
+	l.Observe("u1", 100)
+	l.Observe("u1", 150) // +50
+	l.Observe("u1", 120) // -30
+	l.Observe("u1", 220) // +100 → 流水截断到 2 条
+	since, totals := l.Lifetime()
+	if since.IsZero() {
+		t.Fatal("since 不应为零值")
+	}
+	if got := totals["u1"]; got.Gain != 150 || got.Spent != 30 {
+		t.Fatalf("累计应为 gain=150 spent=30，得到 %+v（流水截断不应影响累计）", got)
+	}
+	l2 := New(path, 2)
+	_, totals2 := l2.Lifetime()
+	if got := totals2["u1"]; got.Gain != 150 || got.Spent != 30 {
+		t.Fatalf("重启后累计应为 gain=150 spent=30，得到 %+v", got)
+	}
+}
+
+// v1 旧文件没有 Totals/Since：加载时由保留的流水回填，升级后累计不归零。
+func TestLegacyFileDerivesTotals(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credit-history.json")
+	raw := `{"version":1,"snapshot":{"u1":130},"entries":[` +
+		`{"time":"2026-10-01T00:00:00Z","uid":"u1","delta":50,"before":100,"after":150},` +
+		`{"time":"2026-10-02T00:00:00Z","uid":"u1","delta":-20,"before":150,"after":130}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	since, totals := New(path, 100).Lifetime()
+	if got := totals["u1"]; got.Gain != 50 || got.Spent != 20 {
+		t.Fatalf("旧文件回填累计应为 gain=50 spent=20，得到 %+v", got)
+	}
+	if since.UTC().Format(time.RFC3339) != "2026-10-01T00:00:00Z" {
+		t.Fatalf("since 应取最早流水时间，得到 %s", since)
 	}
 }
 
