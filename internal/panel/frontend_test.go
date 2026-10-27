@@ -319,8 +319,8 @@ process.stdout.write(JSON.stringify({
 	gain := "14:05:06 | 小明 | +100 | 1,400 | 余额 1,300 → 1,400"
 	loss := "14:05:06 | 89374120 | −30 | 1,370 | 余额 1,400 → 1,370"
 	want := `{"gain":` + strconv.Quote(gain) + `,"loss":` + strconv.Quote(loss) +
-		`,"note":"2 条 · 涨 +1,300 · 消耗 60","empty":"暂无积分变动记录",` +
-		`"summary":"今日涨 +1,300 · 今日消耗 60 · 累计涨 +5,000 · 累计消耗 200 · 自 10-24"}`
+		`,"note":"2 条 · 涨 +1,300 · 消耗 −60","empty":"暂无积分变动记录",` +
+		`"summary":"今日涨 +1,300 · 今日消耗 −60 · 累计涨 +5,000 · 累计消耗 −200 · 自 10-24"}`
 	if strings.TrimSpace(string(out)) != want {
 		t.Fatalf("credit history formatting=%s want %s", out, want)
 	}

@@ -950,6 +950,11 @@ function creditDeltaText(delta) {
   if (d < 0) return '−' + creditNum(-d);
   return '0';
 }
+// creditSpentText 消耗列：与变动列同款负号（U+2212）；0 不加符号。
+function creditSpentText(spent) {
+  const v = Number(spent || 0);
+  return v > 0 ? '−' + creditNum(v) : '0';
+}
 function creditTimeText(e) {
   if (!e || !e.time) return '—';
   const d = new Date(e.time);
@@ -981,15 +986,15 @@ function creditHistoryNote(entries) {
     if (d > 0) gain += d;
     else spent -= d;
   }
-  return entries.length + ' 条 · 涨 ' + creditDeltaText(gain) + ' · 消耗 ' + creditNum(spent);
+  return entries.length + ' 条 · 涨 ' + creditDeltaText(gain) + ' · 消耗 ' + creditSpentText(spent);
 }
 // creditSummaryText 汇总行：今日/累计的获取与消耗分开显示。
 // 净额（涨−消耗）看不出"领了多少、花掉多少"，故不采用。
 // 累计来自账本持久统计，不随流水 2000 条上限滚动；since 为开始记录时间。
 function creditSummaryText(s) {
   if (!s) return '';
-  let t = '今日涨 +' + creditNum(s.today_gain) + ' · 今日消耗 ' + creditNum(s.today_spent) +
-    ' · 累计涨 +' + creditNum(s.total_gain) + ' · 累计消耗 ' + creditNum(s.total_spent);
+  let t = '今日涨 +' + creditNum(s.today_gain) + ' · 今日消耗 ' + creditSpentText(s.today_spent) +
+    ' · 累计涨 +' + creditNum(s.total_gain) + ' · 累计消耗 ' + creditSpentText(s.total_spent);
   if (s.since) {
     const d = new Date(s.since);
     if (!isNaN(d.getTime())) t += ' · 自 ' + (d.getMonth() + 1) + '-' + d.getDate();
@@ -1010,9 +1015,9 @@ function renderCreditSummary(s) {
   body.innerHTML = rows.map(a => '<tr>' +
     '<td>' + esc(a.account || a.uid || '—') + '</td>' +
     '<td class="num">' + esc(creditDeltaText(a.today_gain)) + '</td>' +
-    '<td class="num">' + esc(creditNum(a.today_spent)) + '</td>' +
+    '<td class="num">' + esc(creditSpentText(a.today_spent)) + '</td>' +
     '<td class="num">' + esc(creditDeltaText(a.total_gain)) + '</td>' +
-    '<td class="num">' + esc(creditNum(a.total_spent)) + '</td>' +
+    '<td class="num">' + esc(creditSpentText(a.total_spent)) + '</td>' +
     '</tr>').join('');
 }
 function renderCreditHistory(d) {
