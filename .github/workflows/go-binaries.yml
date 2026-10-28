@@ -35,7 +35,16 @@ jobs:
         with:
           go-version-file: go.mod
       # ubuntu runner 自带 node → panel 包的 JS 运行时冒烟测试（TestAppJSTopLevelSmoke）会真实执行
-      - run: go test ./...
+      - run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee /tmp/go-test.log
+      # 失败时把关键行打成 annotation：仓库没配 gh/token 时，日志接口要 admin 权限，
+      # 而 annotation 匿名可读——否则 CI 红了只能靠猜。
+      - name: 失败摘要
+        if: failure()
+        run: |
+          MSG=$( { grep -E '^(--- FAIL|FAIL|panic:|ok |# )' /tmp/go-test.log | head -20; echo '...'; tail -c 2000 /tmp/go-test.log; } | tr '\n' '|' )
+          echo "::error::go test 失败：${MSG}"
 
   build:
     needs: test
