@@ -44,12 +44,14 @@ type Task struct {
 	Energy       int64  `json:"energy,omitempty"`      // 奖励能量（上游 reward_energy）
 	HasReward    bool   `json:"has_reward,omitempty"`  // 是否带奖励
 	RewardBuddy  bool   `json:"reward_buddy,omitempty"`
-	TaskType     string `json:"task_type,omitempty"` // single（一次性）/ 累计型
-	Tag          string `json:"tag,omitempty"`       // 端标记（PC 等）
-	JumpURL      string `json:"jump_url,omitempty"`  // 客户端跳转协议（workbuddy://...）
-	Locked       bool   `json:"locked,omitempty"`    // 上游标记未解锁
-	Target       int64  `json:"target"`              // 目标次数（恒输出：0 是有效进度值）
-	Current      int64  `json:"current"`             // 当前进度（恒输出：0 是有效进度值）
+	TaskType     string `json:"task_type,omitempty"`   // single（一次性）/ 累计型
+	Tag          string `json:"tag,omitempty"`         // 端标记（PC 等）
+	JumpURL      string `json:"jump_url,omitempty"`    // 客户端跳转协议（workbuddy://...）
+	ValidStart   string `json:"valid_start,omitempty"` // 任务上线时间（上游 RFC3339，空=不限）
+	ValidEnd     string `json:"valid_end,omitempty"`   // 任务下线时间（上游 RFC3339，空=不限）
+	Locked       bool   `json:"locked,omitempty"`      // 上游标记未解锁
+	Target       int64  `json:"target"`                // 目标次数（恒输出：0 是有效进度值）
+	Current      int64  `json:"current"`               // 当前进度（恒输出：0 是有效进度值）
 	AcceptStatus string `json:"accept_status,omitempty"`
 	Status       string `json:"status,omitempty"`    // 上游任务状态（complete 等）
 	Claimable    bool   `json:"claimable,omitempty"` // 进度达标且未领取（本地推算）
@@ -158,6 +160,8 @@ func parseGrowthTasks(data json.RawMessage) ([]Task, error) {
 			TaskType     string          `json:"task_type"`
 			Tag          string          `json:"tag"`
 			JumpURL      string          `json:"jump_url"`
+			ValidStart   string          `json:"valid_start"`
+			ValidEnd     string          `json:"valid_end"`
 			Locked       bool            `json:"locked"`
 			AcceptStatus string          `json:"accept_status"`
 			Status       string          `json:"status"`
@@ -195,6 +199,8 @@ func parseGrowthTasks(data json.RawMessage) ([]Task, error) {
 			TaskType:     t.TaskType,
 			Tag:          t.Tag,
 			JumpURL:      t.JumpURL,
+			ValidStart:   t.ValidStart,
+			ValidEnd:     t.ValidEnd,
 			Locked:       t.Locked,
 			Target:       tgt,
 			Current:      cur,

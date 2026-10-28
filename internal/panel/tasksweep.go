@@ -120,6 +120,9 @@ func (p *Panel) sweepAccount(a *auth.Auth, uid string) (res sweepResult) {
 		}
 	}
 
+	// 到期预警：任务列表已在手，顺手判 valid_end（详见 taskexpiry.go）。
+	p.warnExpiringTasks(a, tasks)
+
 	// 阶段一：接受未接受的任务。默认口径与 mp 口径必须**分开提交**（端标记不同，
 	// 混提交会让 mp 任务报 task not found）。
 	var codes, mpCodes []string

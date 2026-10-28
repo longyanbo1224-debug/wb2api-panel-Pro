@@ -34,11 +34,14 @@ func clientToken() string {
 
 // StreakFull 连登完整状态（GET /activity/growth/streak）。
 type StreakFull struct {
-	Streak struct {
-		Days              int    `json:"days"`
-		MonthTotalDays    int    `json:"month_total_days"`
-		NextTier          string `json:"next_tier"`
-		NextTierRemaining int    `json:"next_tier_remaining"`
+	// LaunchDate 活动上线日（"2026-06-17"）。补签边界用：早于上线日的日期补了不计分。
+	LaunchDate string `json:"launch_date"`
+	Streak     struct {
+		Days              int      `json:"days"`
+		MonthTotalDays    int      `json:"month_total_days"`
+		NextTier          string   `json:"next_tier"`
+		NextTierRemaining int      `json:"next_tier_remaining"`
+		MakeupDates       []string `json:"makeup_dates"` // 已补过的日期，不重复提交
 	} `json:"streak"`
 	MakeupCards struct {
 		Balance int `json:"balance"`

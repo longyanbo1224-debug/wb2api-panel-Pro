@@ -40,27 +40,36 @@ func (c *Client) BlackcatNeed(a *auth.Auth) (int64, error) {
 	return 0, nil
 }
 
+// RealChatOnce 发一次极短真实对话（glm-5.2，1+1）并上报 chat_request_send 事件。
+//
+// 用途：`/v2/report` 返回 200 但热力墙当天 score 仍为 0 时，作为「补计分」动作
+// （真实对话比再补一条事件更可靠——上游对真实会话的计数不吃风控丢弃）。
+// 也是 RunNightChats 的单次形态，两者共用同一请求形状，避免口径漂移。
+func (c *Client) RealChatOnce(a *auth.Auth) error {
+	body, _ := json.Marshal(map[string]any{
+		"model":    "glm-5.2",
+		"messages": []map[string]any{{"role": "user", "content": "1+1等于几？直接回答。"}},
+		"stream":   true,
+	})
+	rc, status, respBody, err := c.ChatStream(a, body, "", ChatMeta{})
+	if err != nil || status >= 400 {
+		if rc != nil {
+			rc.Close()
+		}
+		return fmt.Errorf("对话失败: http=%d err=%v body=%.120s", status, err, respBody)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(rc, 1<<20))
+	rc.Close()
+	return c.ReportChatActivityModel(a, fmt.Sprintf("wb2api-night-%d", time.Now().UnixMilli()), "", "glm-5.2", "GLM-5.2")
+}
+
 // RunNightChats 夜猫子：发 need 次 glm-5.2 真实对话（读干流）并上报事件链。
 // 返回成功次数。对话内容极短（1+1），消耗可忽略。
 func (c *Client) RunNightChats(a *auth.Auth, need int) (int64, error) {
 	var ok int64
 	for i := 0; i < need; i++ {
-		body, _ := json.Marshal(map[string]any{
-			"model":    "glm-5.2",
-			"messages": []map[string]any{{"role": "user", "content": "1+1等于几？直接回答。"}},
-			"stream":   true,
-		})
-		rc, status, respBody, err := c.ChatStream(a, body, "", ChatMeta{})
-		if err != nil || status >= 400 {
-			if rc != nil {
-				rc.Close()
-			}
-			return ok, fmt.Errorf("第 %d 次对话失败: http=%d err=%v body=%.120s", i+1, status, err, respBody)
-		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(rc, 1<<20))
-		rc.Close()
-		if err := c.ReportChatActivityModel(a, fmt.Sprintf("wb2api-night-%d-%d", time.Now().UnixMilli(), i), "", "glm-5.2", "GLM-5.2"); err != nil {
-			return ok, fmt.Errorf("第 %d 次上报失败: %w", i+1, err)
+		if err := c.RealChatOnce(a); err != nil {
+			return ok, fmt.Errorf("第 %d 次: %w", i+1, err)
 		}
 		ok++
 		time.Sleep(4 * time.Second)
@@ -94,29 +103,8 @@ func (c *Client) ClaimCompensation(a *auth.Auth) (int64, error) {
 	return resp.Credit, nil
 }
 
-// HeatmapYesterdayMissed 检查昨日是否漏签（heatmap cell score==0）。
-func (c *Client) HeatmapYesterdayMissed(a *auth.Auth) (bool, error) {
-	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	data, err := c.growthJSON(a, http.MethodGet, "/activity/growth/heatmap", nil)
-	if err != nil {
-		return false, err
-	}
-	var resp struct {
-		Cells []struct {
-			Date  string `json:"date"`
-			Score int    `json:"score"`
-		} `json:"cells"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return false, err
-	}
-	for _, cell := range resp.Cells {
-		if len(cell.Date) >= 10 && cell.Date[:10] == yesterday {
-			return cell.Score == 0, nil
-		}
-	}
-	return false, nil
-}
+// HeatmapYesterdayMissed / HeatmapSnapshot / UseMakeupCard 等热力墙与补签接口见
+// heatmap.go（补签断点选择需要整张热力墙，不再只用「昨日是否漏签」这一个判据）。
 
 // UseMakeupCard 对指定日期使用补签卡（保住连登连续天数；无卡返回业务错误）。
 func (c *Client) UseMakeupCard(a *auth.Auth, date string) error {

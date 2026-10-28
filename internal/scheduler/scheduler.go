@@ -517,6 +517,12 @@ func (s *Scheduler) RunCheckinNow() {
 			EarliestRemaining: earliestRemaining,
 			ExpiryBuckets:     poolExpiryBuckets(buckets),
 		})
+		// 低余额提醒：号烧到快没了才被发现，等于突然掉并发。签到排程里报一次，
+		// 每天最多两行，够运维提前补号/调权重。
+		if lowBalanceWarnThreshold > 0 && remain < lowBalanceWarnThreshold {
+			log.Printf("⚠️ 余额偏低 %s: remain=%d（阈值 %d），考虑补号或降低选号权重",
+				logfmt.Label(st.UID, st.Nickname), remain, lowBalanceWarnThreshold)
+		}
 	}
 	s.RunStreakBonusNow()
 }
@@ -572,6 +578,7 @@ func (s *Scheduler) runActivity(ctx context.Context) {
 			continue
 		}
 		s.checkActivityStreak(a) // 上报成功 → 回读 streak 自检
+		s.verifyHeatmapScored(a) // 上报成功 → 回读热力墙，确认当天真的计分
 	}
 }
 
@@ -595,6 +602,70 @@ func (s *Scheduler) checkActivityStreak(a *auth.Auth) bool {
 	log.Printf("activity %s: streak days=%d", logfmt.Label(a.UID, a.Nickname), days)
 	return false
 }
+
+// heatmapSettleDelay 热力墙计分落库的等待窗口（独立变量供测试置 0）。
+// 上游「上报成功」到「热力图 score 变化」有秒级延迟，立刻回读会把「还没落库」
+// 误判成「没计分」，从而每号每天都多补一次对话。
+var heatmapSettleDelay = 3 * time.Second
+
+// verifyHeatmapScored 校验「今天是否真的计分」：热力墙 today.score > 0。
+//
+// 为什么值得多一次 GET：/v2/report 返回 200 ≠ 计分（缺 userId、上游风控丢弃都是
+// 200 静默丢），而**签到本身不产生活跃分**——连登天数与 7d/14d/28d 兑换档位
+// （28d 值 +150c/号）全挂在这条链上，静默丢一天就少一天连续。
+//
+// 为什么校验挂在活跃上报之后而不是签到之后：签到排程 09:00 早于活跃上报 10:00，
+// 在签到后立刻校验必然 score=0（当天还没上报过），会每天误判、白补对话。
+//
+// 补救口径：score==0 时补一次极短真实对话（比再补一条事件更可靠）后回读；仍为 0
+// 只告警——不伪造计分、不改任何本地完成标记，下一次排程继续试。
+// 返回 true 表示「可疑」（仍为 0 或回读失败），供测试断言。
+func (s *Scheduler) verifyHeatmapScored(a *auth.Auth) bool {
+	label := logfmt.Label(a.UID, a.Nickname)
+	snap, err := s.cfg.Upstream.HeatmapSnapshot(a)
+	if err != nil {
+		log.Printf("heatmap %s: 回读失败（report OK）: %v", label, err)
+		return true
+	}
+	if snap.TodayScore > 0 {
+		log.Printf("heatmap %s: today score=%d（已计分）", label, snap.TodayScore)
+		return false
+	}
+	// 没有 today 字段 = 拿不到权威结论（上游换口径/降级响应）：只记一行，不做任何
+	// 补救动作。状态未知时补对话等于凭猜测烧配额，宁可下次排程再看。
+	if !snap.TodayFound {
+		log.Printf("heatmap %s: 响应缺 today 字段，跳过计分校验", label)
+		return false
+	}
+	// 计分落库可能有秒级延迟：先等一下再回读，避免把「还没落库」误判成「没计分」。
+	if heatmapSettleDelay > 0 {
+		time.Sleep(heatmapSettleDelay)
+		if again, err := s.cfg.Upstream.HeatmapSnapshot(a); err == nil && again.TodayScore > 0 {
+			log.Printf("heatmap %s: today score=%d（已计分，延迟落库）", label, again.TodayScore)
+			return false
+		}
+	}
+	log.Printf("heatmap %s: today score=0（上报 200 未计分）→ 补一次真实对话", label)
+	if err := s.cfg.Upstream.RealChatOnce(a); err != nil {
+		log.Printf("heatmap %s: 补对话失败: %v", label, err)
+		return true
+	}
+	after, err := s.cfg.Upstream.HeatmapSnapshot(a)
+	if err != nil {
+		log.Printf("heatmap %s: 补对话后回读失败: %v", label, err)
+		return true
+	}
+	if after.TodayScore > 0 {
+		log.Printf("heatmap %s: ★ 补对话后已计分 score=%d", label, after.TodayScore)
+		return false
+	}
+	log.Printf("heatmap %s: ⚠️ 补对话后仍 score=0，今日连登可能断档（下次排程继续试）", label)
+	return true
+}
+
+// lowBalanceWarnThreshold 余额低于该值时在签到排程里提醒一次（默认 1000）。
+// 放在签到（每天 2 次）而不是余额刷新（每 5 分钟）里，避免刷屏。
+var lowBalanceWarnThreshold int64 = 1000
 
 // RunKeepaliveNow 立即对所有账号刷新 token；session 死亡的自动禁用。
 // 禁用账号默认跳过；若 schedule.include_disabled_in_tasks 打开，禁用号也会续期 token
@@ -679,7 +750,7 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 				EarliestRemaining: earliestRemaining,
 				ExpiryBuckets:     poolExpiryBuckets(buckets),
 			})
-			}(a, st.UID)
+		}(a, st.UID)
 	}
 	wg.Wait()
 	s.lastBalanceRefresh.Store(time.Now().UnixNano())
