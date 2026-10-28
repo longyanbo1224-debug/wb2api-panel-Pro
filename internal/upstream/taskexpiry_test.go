@@ -9,21 +9,24 @@ import (
 // 关键语义：解析不出来一律返回 false——预警宁可漏报一天，也不能猜错日期
 // 造成天天喊到期（那会让整个预警被运维无视）。
 func TestTaskValidEndTime(t *testing.T) {
+	// 期望值必须写成「时刻」而不是「本地钟点」：带时区的输入解析出的是绝对时刻，
+	// 用 time.Local 拼钟点只在本地时区恰好是 +08 时相等（CI runner 是 UTC）。
+	cst := time.FixedZone("CST", 8*3600)
 	cases := []struct {
 		name string
 		in   string
-		want string // 期望的本地时间串（空 = 期望 ok=false）
+		want time.Time // 零值 = 期望 ok=false
 	}{
-		{"RFC3339 带时区（实测口径）", "2026-11-13T23:59:00+08:00", "2026-11-13 23:59:00"},
-		{"无时区空格形态", "2026-11-13 23:59:00", "2026-11-13 23:59:00"},
-		{"纯日期按当天结束", "2026-11-13", "2026-11-13 23:59:59"},
-		{"空值", "", ""},
-		{"无法识别", "下个月吧", ""},
+		{"RFC3339 带时区（实测口径）", "2026-11-13T23:59:00+08:00", time.Date(2026, 11, 13, 23, 59, 0, 0, cst)},
+		{"无时区空格形态", "2026-11-13 23:59:00", time.Date(2026, 11, 13, 23, 59, 0, 0, time.Local)},
+		{"纯日期按当天结束", "2026-11-13", time.Date(2026, 11, 13, 23, 59, 59, 0, time.Local)},
+		{"空值", "", time.Time{}},
+		{"无法识别", "下个月吧", time.Time{}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, ok := Task{ValidEnd: c.in}.ValidEndTime()
-			if c.want == "" {
+			if c.want.IsZero() {
 				if ok {
 					t.Fatalf("ValidEndTime(%q) ok=true want false", c.in)
 				}
@@ -32,8 +35,8 @@ func TestTaskValidEndTime(t *testing.T) {
 			if !ok {
 				t.Fatalf("ValidEndTime(%q) ok=false want true", c.in)
 			}
-			if want, _ := time.ParseInLocation("2006-01-02 15:04:05", c.want, time.Local); !got.Equal(want) {
-				t.Errorf("ValidEndTime(%q)=%s want %s", c.in, got.Format(time.RFC3339), want.Format(time.RFC3339))
+			if !got.Equal(c.want) {
+				t.Errorf("ValidEndTime(%q)=%s want %s", c.in, got.Format(time.RFC3339), c.want.Format(time.RFC3339))
 			}
 		})
 	}
