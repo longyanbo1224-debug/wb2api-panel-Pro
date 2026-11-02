@@ -1,18 +1,3 @@
-> [!IMPORTANT]
-> **上游来源**：本仓库 fork 自 [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel)，原作者 [@linguo2625469](https://github.com/linguo2625469)。
-> 原作者已于 2026-10-21 停止维护；本仓库由 [@longyanbo1224-debug](https://github.com/longyanbo1224-debug)（Loong）自 `v1.13.0-panel` 起接手继续维护。
-> 以下正文为原 README，内容未作改动。
-
-## 本仓库更新记录（v1.13.0-panel → v1.15.1-panel）
-
-| 版本 | 日期 | 类型 | 主要更新 |
-|---|---|---|---|
-| `v1.15.1-panel` | 2026-11-02 | 修复 | 企业形态判定只看 `enterpriseId`：`enterpriseId` 为空、仅带 `token_source=enterprise_switch` 的个人号不再被误判为企业号（issue #240），恢复签到 / 成长任务 / 活跃上报 / 连登 / 旅行 / 夜猫子 |
-| `v1.15.0-panel` | 2026-10-28 | 功能 | 热力墙计分校验（行为事件后回读 `/activity/growth/heatmap`，未计分补一次短对话再校验）；补签按服务端断点逐张选择；任务到期预警、连登下一档与签到低余额提醒 |
-| `v1.14.1-panel` | 2026-10-27 | 维护 | Go 模块路径随仓库更名为 `wb2api-panel-Pro`（无行为变化） |
-| `v1.14.0-panel` | 2026-10-27 | 功能 | 5 个专题专家任务（`expert_use_*` / `WorkBuddy_Valorant`）；待办奖励直显；积分收支汇总（今日 / 累计，持久化）；修复限流账号导致账号池空白；面板组件折叠与账号筛选增强；新增 `build.bat` / `swap.bat` |
-| `v1.13.0-panel` | 2026-10-08 | 基线 | 继承上游的版本，本仓库自该版本开始接手 |
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/DGZSbot/ai-icon/refs/heads/main/WorkBuddy.png" alt="WorkBuddy2API" width="120">
 </p>
@@ -32,6 +17,21 @@
 </p>
 
 ---
+
+> [!IMPORTANT]
+> **上游来源**：本仓库 fork 自 [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel)，原作者 [@linguo2625469](https://github.com/linguo2625469)。
+> 原作者已于 2026-10-21 停止维护；本仓库由 [@longyanbo1224-debug](https://github.com/longyanbo1224-debug)（Loong）自 `v1.13.0-panel` 起接手继续维护。
+> 以下正文为原 README，内容未作改动。
+
+## 本仓库更新记录（v1.13.0-panel → v1.15.1-panel）
+
+| 版本 | 日期 | 类型 | 主要更新 |
+|---|---|---|---|
+| `v1.15.1-panel` | 2026-11-02 | 修复 | 企业形态判定只看 `enterpriseId`：`enterpriseId` 为空、仅带 `token_source=enterprise_switch` 的个人号不再被误判为企业号（issue #240），恢复签到 / 成长任务 / 活跃上报 / 连登 / 旅行 / 夜猫子 |
+| `v1.15.0-panel` | 2026-10-28 | 功能 | 热力墙计分校验（行为事件后回读 `/activity/growth/heatmap`，未计分补一次短对话再校验）；补签按服务端断点逐张选择；任务到期预警、连登下一档与签到低余额提醒 |
+| `v1.14.1-panel` | 2026-10-27 | 维护 | Go 模块路径随仓库更名为 `wb2api-panel-Pro`（无行为变化） |
+| `v1.14.0-panel` | 2026-10-27 | 功能 | 5 个专题专家任务（`expert_use_*` / `WorkBuddy_Valorant`）；待办奖励直显；积分收支汇总（今日 / 累计，持久化）；修复限流账号导致账号池空白；面板组件折叠与账号筛选增强；新增 `build.bat` / `swap.bat` |
+| `v1.13.0-panel` | 2026-10-08 | 基线 | 继承上游的版本，本仓库自该版本开始接手 |
 
 > [!IMPORTANT]
 > **项目已停止维护（2026-10-21）**：后续不再更新代码、不跟进上游变化、不再处理新的 issue / PR。
