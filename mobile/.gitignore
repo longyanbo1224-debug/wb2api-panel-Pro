@@ -1,0 +1,9 @@
+# 构建产物（不提交）
+.gradle/
+build/
+local.properties
+
+# 交叉编译出来的 Go 引擎（由 build-apk.sh / build-apk.bat 生成）
+app/src/main/jniLibs/
+
+# 注意：gradle-wrapper.jar 必须进仓库（别人 clone 后无需装 gradle），不要忽略它。

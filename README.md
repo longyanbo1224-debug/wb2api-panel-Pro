@@ -21,17 +21,93 @@
 > [!IMPORTANT]
 > **上游来源**：本仓库 fork 自 [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel)，原作者 [@linguo2625469](https://github.com/linguo2625469)。
 > 原作者已于 2026-10-21 停止维护；本仓库由 [@longyanbo1224-debug](https://github.com/longyanbo1224-debug)（Loong）自 `v1.13.0-panel` 起接手继续维护。
-> 以下正文为原 README，内容未作改动。
+> **本 README 分两部分**：上半部分（更新记录、手机端 App、账号迁移等）为本仓库维护者编写；
+> 下半部分从标题「⬇️ 以下为原作者 README 原文」起，是原作者 README 原文，内容未作改动。
 
-## 本仓库更新记录（v1.13.0-panel → v1.15.1-panel）
+## 本仓库更新记录（v1.13.0-panel → v1.16.0-panel）
 
 | 版本 | 日期 | 类型 | 主要更新 |
 |---|---|---|---|
+| `v1.16.0-panel` | 2026-11-04 | 功能 | **手机端独立 App（Android）**：内嵌 Go 引擎以 `-mode=tasks` 运行，只做签到 / 成长任务 / 活跃 / 旅行 / 夜猫子 / 保活，**不注册 `/v1` 反代路由、只监听 `127.0.0.1`**，无需电脑即可每天自动做任务。新增 `-mode=tasks` 启动参数、`time/tzdata` 内嵌时区（Android 无 `/etc/localtime`）、面板按运行模式隐藏反代专属页；工程见 [`mobile/`](mobile/README.md)。**面板与两端界面**：账号备注写入 auth 文件并跟随导出迁移；新增「导出本机账号」按钮与 `scripts/export_cockpit.py`；积分历史独立成页；账号池显示「今日 +N」新增积分；手机端账号池改为卡册页签 + 卡片、任务清单改为底部抽屉、任务中心改为汇总 / 筛选 / 卡片、积分构成加账号页签，任务模式的运行日志只保留任务与系统频道；弹层打开时自动隐藏悬浮齿轮 |
 | `v1.15.1-panel` | 2026-11-02 | 修复 | 企业形态判定只看 `enterpriseId`：`enterpriseId` 为空、仅带 `token_source=enterprise_switch` 的个人号不再被误判为企业号（issue #240），恢复签到 / 成长任务 / 活跃上报 / 连登 / 旅行 / 夜猫子 |
 | `v1.15.0-panel` | 2026-10-28 | 功能 | 热力墙计分校验（行为事件后回读 `/activity/growth/heatmap`，未计分补一次短对话再校验）；补签按服务端断点逐张选择；任务到期预警、连登下一档与签到低余额提醒 |
 | `v1.14.1-panel` | 2026-10-27 | 维护 | Go 模块路径随仓库更名为 `wb2api-panel-Pro`（无行为变化） |
 | `v1.14.0-panel` | 2026-10-27 | 功能 | 5 个专题专家任务（`expert_use_*` / `WorkBuddy_Valorant`）；待办奖励直显；积分收支汇总（今日 / 累计，持久化）；修复限流账号导致账号池空白；面板组件折叠与账号筛选增强；新增 `build.bat` / `swap.bat` |
 | `v1.13.0-panel` | 2026-10-08 | 基线 | 继承上游的版本，本仓库自该版本开始接手 |
+
+### 手机端独立 App（v1.16.0-panel 起）
+
+只想让手机每天自己签到、做任务、领积分，不想开电脑时用这个：
+
+```bash
+build_android.bat                                  # Windows 一键打包（推荐）
+./mobile/build-apk.sh                              # macOS / Linux / Git Bash
+# 产物：dist/android/wb2api-tasks.apk
+adb install -r dist/android/wb2api-tasks.apk
+```
+
+APK 里内嵌的就是本仓库的 Go 引擎，但以 `-mode=tasks` 启动——**不注册任何 `/v1` 反代路由，
+只监听 `127.0.0.1`**，对外什么都不暴露；界面直接复用现有面板（含手机适配层），功能与桌面端
+一比一。手机首次打开后「添加账号」会跳到系统浏览器完成 OAuth，之后前台服务 + 心跳闹钟会让它
+按配置的时间点自动跑签到 / 成长任务 / 活跃上报 / 旅行 / 夜猫子 / 保活。
+
+打包依赖（Go 1.22+ / JDK 17 / Android SDK 34）、保活机制、国产 ROM 必设项与排查表见
+[`mobile/README.md`](mobile/README.md)。
+
+> **Windows 打包提示 `ERROR: go not found`？** 构建脚本按 `GO_BIN` → `PATH` →
+> `%USERPROFILE%\tools\go\bin` / `%LOCALAPPDATA%\Programs\Go\bin` / `%ProgramFiles%\Go\bin`
+> / scoop、chocolatey 的 shims 顺序找 Go。Go 装在别处时，把它的 `bin` 目录写进环境变量后
+> **重开窗口**即可：
+>
+> ```bat
+> setx GO_BIN "C:\path\to\go\bin"
+> ```
+>
+> 同理，JDK 按 `JAVA_HOME` → Android Studio 自带 JBR → Adoptium / Java / Microsoft /
+> Zulu / Corretto / BellSoft 目录顺序查找；Android SDK 按 `mobile\local.properties` →
+> `ANDROID_HOME` → `%LOCALAPPDATA%\Android\Sdk` 查找。
+
+#### 把电脑上的账号导入手机
+
+手机端的账号存在 App 私有目录（`files/engine/auths/`），与电脑端的 `auths/` 不共享，
+需要单独搬一次。**账号备注（note）写在 auth 文件里**，所以复制 `auths` 目录、或用下面的
+导出/导入换机器，备注都会跟着走。两种方式任选其一：
+
+**方式 A：导出后在手机面板「导入」（不需要 adb）**
+
+两种导出方式等价，都包含备注与凭证：
+
+- **面板按钮**（推荐）：任意端打开面板 → 添加账号 → 导入 → 点 **「导出本机账号」** →
+  「下载文件」或「复制」；
+- **命令行**：`python scripts/export_cockpit.py`（读 `./auths`，生成 `cockpit-accounts.json`）。
+
+把生成的 JSON 传到手机（USB / 微信文件传输 / 网盘），然后在 App 里
+**添加账号 → 切到「导入」→ 选择文件 → 点「导入账号」**，看到「导入完成：成功 N 个」
+后再点「完成」关窗。导入后面板会显示账号，并顺手做一次签到。
+
+> 导出文件里是**明文** accessToken / refreshToken，等同于账号本身。传到手机后请删除
+> 本地副本（该文件名已加入 `.gitignore`，避免误提交）。
+
+**方式 B：adb 直接拷（debug 包，最快）**
+
+```bat
+adb shell run-as com.wb2api.tasks mkdir -p files/engine/auths
+for %f in (auths\*.json) do adb shell "run-as com.wb2api.tasks sh -c 'cat > files/engine/auths/%~nxf'" < "%f"
+```
+
+拷完在 App 里 **齿轮 → 重启引擎**（引擎只在启动时扫描 auths 目录）。
+
+> 手机端有独立的账号与状态（`auths/`、`state.json` 都在 App 私有目录），与电脑端互不相干。
+> **同一个账号不要在两端同时开定时任务**，否则重复签到 / 重复上报容易触发上游风控。
+
+---
+
+# ⬇️ 以下为原作者 README 原文（自此行起未作改动）
+
+> **分界说明**：上述内容由本仓库维护者编写；以下内容为原作者
+> [@linguo2625469](https://github.com/linguo2625469) 的 README 原文，自 2026-10-21 停止
+> 维护后不再跟随本仓库更新。文中「项目已停止维护」「使用声明」等表述均出自原作者；
+> 本仓库新增的手机端 App、`-mode=tasks` 等改动不在原文覆盖范围内，请以上半部分为准。
 
 ---
 

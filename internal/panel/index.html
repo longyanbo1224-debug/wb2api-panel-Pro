@@ -172,7 +172,11 @@ input, select {
 input:focus, select:focus { outline: none; border-color: var(--accent); }
 input.invalid { border-color: var(--bad); background: var(--bad-soft); }
 input.invalid:focus { border-color: var(--bad); }
-input[type=checkbox] { width: auto; accent-color: var(--accent); }
+/* 单选/复选不能继承上面那条文本输入样式（宽度 100% + 内边距 + 边框会把
+   原生控件撑成一个带框的方块，圆点显得很大）。 */
+input[type=radio], input[type=checkbox] {
+  width: auto; min-height: 0; padding: 0; border: 0; background: none; accent-color: var(--accent);
+}
 label.fld { display: block; margin-bottom: 14px; }
 label.fld > .lb { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 5px; }
 label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
@@ -271,6 +275,7 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .cred { min-width: 84px; }
 .cred .n { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
 .cred .n .of { color: var(--ink-3); font-size: 11px; }
+.cred .today { margin-top: 3px; font-size: 11px; color: var(--ok); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 5px; overflow: hidden; max-width: 88px; }
 .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 .tag {
@@ -595,6 +600,36 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
     color: var(--ink-2); font-size: 12.5px; }
   .rm-row input { flex: 1; }
 
+  /* 导出账号的 JSON 预览框：跟随主题，等宽字体（内容是要复制的原文）。 */
+  #exportBody {
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; margin-top: 8px;
+    white-space: pre; overflow: auto;
+  }
+
+  /* ── 任务模式（-mode=tasks / 手机 App）只保留"签到 + 任务 + 积分"需要的界面 ──
+     这些列与卡片统计的是反代流量：成功/失败、在途请求、token 用量、最近一次 chat 成功、
+     模型级限流池。任务模式没有 /v1 流量，它们恒为 0 或空，留着只会让人以为"没数据=坏了"。
+     body.tasks 由 app.js 的 applyMode() 根据 overview.mode 切换。 */
+  body.tasks #statCooling,
+  body.tasks #statPaused,
+  body.tasks #mlBox,
+  body.tasks #reqBox { display: none; }
+  /* 请求记录与「对话」频道都是反代概念：任务模式没有 /v1 流量，只剩本机探活的
+     404，留着会把真正有用的任务/系统日志挤到屏幕外。 */
+  body.tasks #logChips [data-ch="chat"] { display: none; }
+  body.tasks #accTable th:nth-child(5),
+  body.tasks #accTable th:nth-child(6),
+  body.tasks #accTable th:nth-child(7),
+  body.tasks #accTable th:nth-child(8),
+  body.tasks #accBody td:nth-child(5),
+  body.tasks #accBody td:nth-child(6),
+  body.tasks #accBody td:nth-child(7),
+  body.tasks #accBody td:nth-child(8) { display: none; }
+  body.tasks #accFilter option[value="paused"] { display: none; }
+
+
 </style>
 <!-- 移动端适配：独立文件，必须在主 <style> 之后（@media 覆盖依赖层叠顺序） -->
 <link rel="stylesheet" href="mobile.css">
@@ -616,6 +651,9 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <li><a href="#packages" data-view="packages">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.2 5.4 8 2.5l5.8 2.9v5.2L8 13.5l-5.8-2.9z"/><path d="M2.2 5.4 8 8.3l5.8-2.9M8 8.3v5.2"/></svg>
         积分构成</a></li>
+      <li><a href="#credithist" data-view="credithist">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.6"/><path d="M8 4.6V8l2.3 1.6"/></svg>
+        积分历史</a></li>
       <li><a href="#taskscenter" data-view="taskscenter">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2.5h10v9H8l-3 3v-3H3z"/><path d="M6 6.5h4M6 9h2.5"/></svg>
         任务中心</a></li>
@@ -657,10 +695,10 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <div class="stats">
         <div class="stat"><div class="v" id="sTotal">-</div><div class="k">账号总数</div></div>
         <div class="stat good"><div class="v" id="sHealthy">-</div><div class="k">可用</div></div>
-        <div class="stat warn"><div class="v" id="sCooling">-</div><div class="k">冷却中</div></div>
+        <div class="stat warn" id="statCooling"><div class="v" id="sCooling">-</div><div class="k">冷却中</div></div>
         <div class="stat bad"><div class="v" id="sDisabled">-</div><div class="k">已禁用</div></div>
-        <div class="stat warn"><div class="v" id="sPaused">-</div><div class="k">已暂停选号</div></div>
-        <div class="stat"><div class="v" id="sCredits">-</div><div class="k">积分剩余 / 总额</div></div>
+        <div class="stat warn" id="statPaused"><div class="v" id="sPaused">-</div><div class="k">已暂停选号</div></div>
+        <div class="stat" id="statCredits"><div class="v" id="sCredits">-</div><div class="k">积分剩余 / 总额</div></div>
         <div class="stat"><div class="v" id="sSticky">-</div><div class="k">粘性会话</div></div>
       </div>
 
@@ -714,8 +752,11 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
           <button class="xs" id="btnActivityAll">活跃上报</button>
           <button class="xs" id="btnKeepaliveAll">全部保活</button>
         </header>
-        <div class="tbl-wrap">
-        <table class="acc">
+        <!-- 手机端「账号卡册」：一排账号页签（桌面端隐藏，见 mobile.css） -->
+        <div class="acc-chips" id="accChips" role="tablist" aria-label="账号切换"></div>
+        <div class="acc-cards" id="accCards"></div>
+        <div class="tbl-wrap" id="accTableWrap">
+        <table class="acc" id="accTable">
           <thead><tr>
             <th class="mark" aria-hidden="true"></th>
             <th>账号</th><th>状态</th><th>积分</th>
@@ -726,7 +767,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         </div>
       </div>
 
-      <div class="box">
+      <div class="box" id="mlBox">
         <header>
           <h3>模型锁池 <span class="hint">哪些模型不能用、还要锁多久</span></h3>
           <span class="grow"></span>
@@ -757,6 +798,18 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
           <button class="xs" id="btnScanAll">扫描待办</button>
           <button class="xs primary" id="btnRunQueue">执行全部待办</button>
         </header>
+        <!-- 手机端：与「任务」抽屉同形的汇总 / 筛选 / 卡片列表（桌面端隐藏） -->
+        <div class="tsum" id="qcSum">
+          <div class="tsum-item"><b id="qsTodo">0</b><span>任务项</span></div>
+          <div class="tsum-item"><b id="qsAccts">0</b><span>账号</span></div>
+          <div class="tsum-item"><b id="qsPts">+0</b><span>积分合计</span></div>
+        </div>
+        <div class="tfilters" id="qcFilters">
+          <button class="chip on" data-qf="all">全部</button>
+          <button class="chip" data-qf="open">未完成</button>
+          <button class="chip" data-qf="done">已完成</button>
+          <button class="chip" data-qf="err">失败</button>
+        </div>
         <div class="qprog" id="qProg" hidden>
           <div class="qbar"><i id="qBarFill"></i></div>
           <span class="note" id="qProgText"></span>
@@ -835,6 +888,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
 
     <!-- 积分构成 -->
     <section class="view" id="view-packages" hidden>
+      <div class="acc-chips" id="pkChips" role="tablist" aria-label="积分账号切换"></div>
       <div class="box">
         <header>
           <h3>积分到期分布</h3>
@@ -1161,7 +1215,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
 
     <!-- 日志 -->
     <section class="view" id="view-logs" hidden>
-      <div class="box">
+      <div class="box" id="reqBox">
         <header>
           <h3>请求记录 <span class="hint">调用来源：IP 取 X-Forwarded-For 首段，无代理头时回落 TCP 对端</span></h3>
           <span class="grow"></span>
@@ -1214,32 +1268,41 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         </header>
         <pre id="logBox"></pre>
       </div>
+    </section>
 
-      <div class="box">
+    <!-- 积分历史（独立页）：账号汇总 与 变动明细 拆成两张卡，避免两个表贴在一起 -->
+    <section class="view" id="view-credithist" hidden>
+      <div class="box" id="creditSumBox" hidden>
         <header>
-          <h3>积分历史 <span class="hint">每次真实查到余额与上次比对，变动即留痕</span></h3>
+          <h3>账号汇总 <span class="hint">每个账号今日 / 累计的涨与耗</span></h3>
           <span class="grow"></span>
           <span class="note" id="creditSumNote"></span>
-          <span class="note" id="creditNote">—</span>
         </header>
-        <div class="fbar">
-          <select id="creditLimit" aria-label="读取条数">
-            <option value="100" selected>最近 100 条</option>
-            <option value="300">最近 300 条</option>
-            <option value="1000">最近 1000 条</option>
-          </select>
-          <span class="grow"></span>
-          <button class="xs" id="btnCreditReload">重新读取</button>
-        </div>
-        <div class="tbl-wrap" id="creditSumWrap" hidden>
+        <div class="tbl-wrap">
           <table class="acc">
             <thead><tr>
-              <th>账号汇总</th><th class="num">今日涨</th><th class="num">今日消耗</th>
+              <th>账号</th><th class="num">今日涨</th><th class="num">今日消耗</th>
               <th class="num">累计涨</th><th class="num">累计消耗</th>
             </tr></thead>
             <tbody id="creditSumBody"></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="box">
+        <header>
+          <h3>变动明细 <span class="hint">每次真实查到余额与上次比对，变动即留痕</span></h3>
+          <span class="grow"></span>
+          <span class="note" id="creditNote">—</span>
+          <label class="sel-note">条数
+            <select id="creditLimit" aria-label="读取条数">
+              <option value="100" selected>最近 100 条</option>
+              <option value="300">最近 300 条</option>
+              <option value="1000">最近 1000 条</option>
+            </select>
+          </label>
+          <button class="xs" id="btnCreditReload">重新读取</button>
+        </header>
         <div class="tbl-wrap">
           <table class="acc">
             <thead><tr>
@@ -1264,8 +1327,22 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <div class="hint">查询上游任务进度；「接受」为报名（幂等），「领取」在进度达标后可用。所有操作走网关，无需外部脚本。</div>
     </header>
     <div class="body">
+      <!-- 手机端：汇总三格 + 筛选 + 卡片列表（桌面端隐藏，仍用下方表格） -->
+      <div class="tsum" id="taskSum" hidden>
+        <div class="tsum-item"><b id="tsDone">0</b><span>已完成</span></div>
+        <div class="tsum-item"><b id="tsOpen">0</b><span>未完成</span></div>
+        <div class="tsum-item"><b id="tsPts">+0</b><span>积分合计</span></div>
+      </div>
+      <div class="tfilters" id="taskFilters" hidden>
+        <button class="chip on" data-tf="all">全部</button>
+        <button class="chip" data-tf="open">只看未完成</button>
+        <button class="chip" data-tf="done">只看已完成</button>
+        <span class="grow"></span>
+        <button class="xs" id="btnTaskCopy">复制清单</button>
+      </div>
       <div class="state" id="taskState"><span class="dots">加载中</span></div>
-      <div class="tbl-wrap">
+      <div class="task-cards" id="taskCards"></div>
+      <div class="tbl-wrap" id="taskTableWrap">
         <table class="acc md" id="taskTable" hidden>
           <thead><tr><th class="mark" aria-hidden="true"></th><th>任务</th><th>进度</th><th>奖励</th><th>状态</th><th class="c-acts"></th></tr></thead>
           <tbody id="taskBody"></tbody>
@@ -1331,10 +1408,20 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       </div>
       <!-- 导入 JSON -->
       <div id="addTabImport" class="tab-panel" hidden>
-        <div class="hint" style="margin-bottom:8px">选择 cockpit tools 导出的 JSON 文件，批量导入账号。文件需为账号数组格式。</div>
+        <div class="hint" style="margin-bottom:8px">
+          选择 JSON 文件后点右下角「导入账号」。文件为账号数组：cockpit tools 导出的，
+          或本仓库 <code>scripts/export_cockpit.py</code> 生成的文件。
+        </div>
         <input type="file" id="importFile" accept=".json" style="margin-bottom:8px">
+        <div class="state" id="importPicked" hidden></div>
+        <div class="state" id="importLoad" hidden><span class="dots">正在导入账号</span></div>
         <div id="importDone" class="state ok" hidden></div>
         <div id="importErr" class="state err" hidden></div>
+        <div class="hr" style="margin:12px 0"></div>
+        <div class="inline">
+          <button class="xs" id="btnExport">导出本机账号</button>
+          <span class="hint" style="margin:0">反过来用：把本机账号导出成一份 JSON，带到另一台机器 / 手机端</span>
+        </div>
       </div>
     </div>
     <footer>
@@ -1342,6 +1429,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <button id="btnStartLogin" class="primary">获取授权链接</button>
       <button id="btnCopyUrl" hidden>复制链接</button>
       <button id="btnOpenUrl" class="primary" hidden>在浏览器打开</button>
+      <button id="btnImport" class="primary" hidden disabled>导入账号</button>
       <button id="btnCloseAdd">关闭</button>
     </footer>
   </div>
@@ -1370,7 +1458,8 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
   <div class="dlg" style="width:560px">
     <header>
       <h3>账号备注</h3>
-      <div class="hint">备注只存在本机浏览器（localStorage: wb2api.remarks.v1），不写回后端；账号池与用量页会同时显示「备注 + 原昵称」。留空即清除该账号备注。</div>
+      <div class="hint">备注会写进账号文件（<code>auths/workbuddy-*.json</code> 的 <code>note</code> 键），
+        复制 auths 目录或用「导出账号」换机器时都会跟着走；账号池与用量页会显示「备注 + 原昵称」。留空即清除。</div>
     </header>
     <div class="body">
       <div class="rm-list" id="remarkBody"></div>
@@ -1384,7 +1473,64 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
   </div>
 </div>
 
+<!-- 手机：账号「更多」操作（低频危险操作收在这里） -->
+<div class="veil" id="accMoreVeil">
+  <div class="dlg amore" style="width:380px">
+    <header>
+      <h3><span id="accMoreTitle">账号</span> · 更多</h3>
+      <div class="hint">卡片上只留签到 / 余额 / 更多，低频操作放在这里。</div>
+    </header>
+    <div class="body" id="accMoreBody"></div>
+    <footer>
+      <span class="grow"></span>
+      <button id="btnAccMoreClose">关闭</button>
+    </footer>
+  </div>
+</div>
+
+<!-- 手机底部标签栏（桌面端隐藏） -->
+<nav class="tabbar" id="tabbar" aria-label="底部导航">
+  <button data-view="accounts" class="on" aria-label="账号">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6"/><path d="M2.8 13.5c.6-2.6 2.7-4 5.2-4s4.6 1.4 5.2 4"/></svg>
+    <span>账号</span>
+  </button>
+  <button data-view="taskscenter" aria-label="任务">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 2.5h10v9H8l-3 3v-3H3z"/><path d="M6 6.5h4M6 9h2.5"/></svg>
+    <span>任务</span>
+  </button>
+  <button data-view="credithist" aria-label="积分">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5.6"/><path d="M8 4.6V8l2.3 1.6"/></svg>
+    <span>积分</span>
+  </button>
+  <button data-view="logs" aria-label="日志">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg>
+    <span>日志</span>
+  </button>
+</nav>
+
 <div id="toasts"></div>
+
+<!-- 导出账号（迁移用：桌面 ↔ 桌面 / 桌面 ↔ 手机） -->
+<div class="veil" id="exportVeil">
+  <div class="dlg" style="width:640px">
+    <header>
+      <h3>导出账号</h3>
+      <div class="hint">内容含明文 accessToken / refreshToken，等同于账号本身。仅用于迁移到另一台机器或手机端，
+        用完请删除；手机端可用「复制」后存成 .json 再导入。</div>
+    </header>
+    <div class="body">
+      <div class="state" id="exportCount"></div>
+      <textarea id="exportBody" readonly rows="12"
+        style="width:100%;font-family:var(--mono);font-size:12px;line-height:1.5;resize:vertical"></textarea>
+    </div>
+    <footer>
+      <span class="grow"></span>
+      <button id="btnExportCopy">复制</button>
+      <button id="btnExportSave" class="primary">下载文件</button>
+      <button id="btnExportClose">关闭</button>
+    </footer>
+  </div>
+</div>
 
 <script src="app.js"></script>
 <script src="mobile.js"></script>

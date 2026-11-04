@@ -1,6 +1,8 @@
 @echo off
 cd /d "%~dp0"
-set "PATH=C:\Users\yw\tools\go\bin;%PATH%"
+rem Optional local Go install: set GO_BIN if go is not on PATH
+rem (e.g.  setx GO_BIN C:\tools\go\bin), otherwise PATH is used as-is.
+if defined GO_BIN set "PATH=%GO_BIN%;%PATH%"
 set "GOPROXY=https://goproxy.cn,direct"
 
 echo Building wb2api.exe ...

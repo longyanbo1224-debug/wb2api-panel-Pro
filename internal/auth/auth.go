@@ -36,7 +36,10 @@ type Auth struct {
 	UID          string
 	EnterpriseID string
 	Nickname     string
-	FilePath     string // 来源文件；refresh 后原子写回此处
+	// Note 用户备注（面板「备注」里编辑）。随 auth 文件落盘，所以复制 auths 目录、
+	// 或经面板导出 cockpit JSON 换机器时都跟着走——备注是账号元数据，不是本机设置。
+	Note     string
+	FilePath string // 来源文件；refresh 后原子写回此处
 
 	// DeviceToken 设备风控 Token（X-Device-Token 头），来源 auth 文件的 device_token 键。
 	// 缺省为空 = 不注入该头（容器内无桌面端 Turing SDK 的常见部署）。
@@ -255,6 +258,8 @@ func Parse(raw []byte) (*Auth, error) {
 			} `json:"account"`
 			// DeviceToken 顶层 device_token（嵌套形与扁平形共用；手写时无需嵌进 auth 对象）。
 			DeviceToken string `json:"device_token"`
+			// Note 顶层 note（两种形态共用，缺省为空）。
+			Note string `json:"note"`
 		}
 		if err := json.Unmarshal(raw, &n); err != nil {
 			return nil, fmt.Errorf("storage_parse_error: %w", err)
@@ -269,6 +274,7 @@ func Parse(raw []byte) (*Auth, error) {
 			EnterpriseID: n.Account.EnterpriseID,
 			Nickname:     n.Account.Nickname,
 			DeviceToken:  n.DeviceToken,
+			Note:         n.Note,
 		}
 	} else {
 		var f struct {
@@ -281,6 +287,7 @@ func Parse(raw []byte) (*Auth, error) {
 			EnterpriseID string `json:"enterpriseId"`
 			Nickname     string `json:"nickname"`
 			DeviceToken  string `json:"device_token"`
+			Note         string `json:"note"`
 		}
 		if err := json.Unmarshal(raw, &f); err != nil {
 			return nil, fmt.Errorf("storage_parse_error: %w", err)
@@ -295,6 +302,7 @@ func Parse(raw []byte) (*Auth, error) {
 			EnterpriseID: f.EnterpriseID,
 			Nickname:     f.Nickname,
 			DeviceToken:  f.DeviceToken,
+			Note:         f.Note,
 		}
 	}
 	if strings.TrimSpace(a.AccessToken) == "" {
@@ -309,6 +317,20 @@ func Parse(raw []byte) (*Auth, error) {
 func (a *Auth) SaveAtomic() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.saveLocked()
+}
+
+// SetNote 设置备注并原子落盘。备注与凭证同文件：复制 auths 目录、或用面板导出
+// cockpit JSON 换机器时都会跟着走（早期版本只存浏览器 localStorage，换机器就丢）。
+func (a *Auth) SetNote(note string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Note = note
+	return a.saveLocked()
+}
+
+// saveLocked 是 SaveAtomic 的无锁实现，供已持锁的调用方复用（避免自锁死）。
+func (a *Auth) saveLocked() error {
 	if strings.TrimSpace(a.AccessToken) == "" {
 		return fmt.Errorf("save refused: empty accessToken (uid=%s)", a.UID)
 	}
@@ -333,6 +355,10 @@ func (a *Auth) SaveAtomic() error {
 	// （保持与插件 OAuth 输出形状一致，插件读取忽略未知键）。
 	if a.DeviceToken != "" {
 		doc["device_token"] = a.DeviceToken
+	}
+	// 备注非空才写：不打扰没有备注的旧文件（保持与插件输出形状一致）。
+	if a.Note != "" {
+		doc["note"] = a.Note
 	}
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

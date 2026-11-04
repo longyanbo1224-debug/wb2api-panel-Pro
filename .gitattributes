@@ -1,0 +1,19 @@
+# Line endings are enforced by git, so a clone on any OS gets what the
+# toolchain expects. This is also what keeps cmd.exe from misparsing the
+# Windows launcher: LF-only .bat files make cmd occasionally drop the first
+# character of a line ("REM foo" -> "EM foo").
+* text=auto
+
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+*.sh    text eol=lf
+*.go    text eol=lf
+*.gradle text eol=lf
+*.properties text eol=lf
+
+# Gradle wrapper: the shell script is LF even without an extension, the rest
+# must stay byte-exact.
+gradlew      text eol=lf
+gradlew.bat  text eol=crlf
+*.jar        binary

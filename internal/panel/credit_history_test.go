@@ -56,6 +56,37 @@ type creditResp struct {
 	} `json:"summary"`
 }
 
+// 账号池概览也要带今日新增：前端卡片/表格显示「今日 +N」，不必再拉整本流水。
+func TestOverviewIncludesTodayCreditGain(t *testing.T) {
+	l := credithist.New("", 100)
+	l.Observe("u1", 1000) // 基线
+	l.Observe("u1", 1130) // 今日 +130
+
+	p := creditPanel(t, l)
+	req := httptest.NewRequest("GET", "/panel/api/overview", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	rr := httptest.NewRecorder()
+	p.ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("GET overview -> %d %s", rr.Code, rr.Body.String())
+	}
+	var out struct {
+		Accounts []struct {
+			UID              string `json:"uid"`
+			CreditsTodayGain int64  `json:"credits_today_gain"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v", err)
+	}
+	if len(out.Accounts) != 1 || out.Accounts[0].UID != "u1" {
+		t.Fatalf("accounts=%+v", out.Accounts)
+	}
+	if got := out.Accounts[0].CreditsTodayGain; got != 130 {
+		t.Fatalf("credits_today_gain=%d want 130", got)
+	}
+}
+
 // 接口形状：新的在前、字段齐全、昵称由池快照填充（账本只存 uid）。
 func TestCreditHistoryEndpointShape(t *testing.T) {
 	l := credithist.New("", 100)

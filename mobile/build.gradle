@@ -1,0 +1,7 @@
+// 根构建脚本：只声明 AGP 版本，具体配置在 app/build.gradle。
+//
+// 版本约束：AGP 8.5.x 需要 JDK 17 + Gradle 8.7+；compileSdk 34 需要 SDK Platform 34
+// 与 Build-Tools 34.x（Android Studio 里装一次即可，或用 sdkmanager 命令行装）。
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

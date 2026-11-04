@@ -3,11 +3,11 @@
 const LS_KEY = 'wb2api.key', LS_THEME = 'wb2api.theme';
 /* 账号备注与「积分到期提醒」折叠的本机键（同上：模块级声明放顶部，避开 TDZ）。 */
 const LS_REMARKS = 'wb2api.remarks.v1', LS_EXP_FOLD = 'wb2api.expfold.v1', LS_COMP_FOLD = 'wb2api.compfold.v1';
-let remarksCache = null;
 let theme = localStorage.getItem(LS_THEME) || 'auto';   // auto | light | dark
 let view = 'accounts';
 let overviewData = null, cfgLoaded = null;
 let logPin = true, loginState = null, loginTimer = null;
+let importFileObj = null;   // 导入页已选中的文件（选文件不直接上传，等用户点「导入账号」）
 let refTimer = null;
 /* 视图级筛选状态（模块级声明放在文件顶部，避免顶层 go() 早于声明执行时踩 TDZ）。 */
 let mdFilter = { q: '', realm: '', cap: '', effort: '', promo: '', sort: 'default' };
@@ -15,6 +15,7 @@ let mdAll = [], mdProbes = {}, mdProbeOf = () => undefined;
 let mdLocks = [], mdRecent = [];
 let reqFilter = { q: '', outcome: '' };
 let accFilter = 'all', accLast = [];   // 账号池状态筛选：all | active | paused | disabled
+let accSel = null;                       // 手机端卡册选中的账号（null = 全部）
 let reqEntries = [];
 let usDim = 'account', usCreditDim = 'account', usSort = 'total';
 let usageData = null;
@@ -351,18 +352,22 @@ $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnKe
    是因为 go() 的初始调用就会触发首页卡片的渲染，必须先于它就位。 */
 let lastPackages = null;
 let lastPackagesAt = 0;
+let pkSel = null;      // 手机端积分构成选中的账号 uid；null = 全部
 let expFetching = false;                       // 到期卡片在途标记（防重复打上游）
 const EXP_FRESH_MS = 2 * 60 * 1000;            // 缓存新鲜窗口：2 分钟内复用
 
-const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志' };
+const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', credithist: '积分历史', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志' };
 function go(v) {
   view = v;
   document.querySelectorAll('.view').forEach(s => s.hidden = s.id !== 'view-' + v);
   document.querySelectorAll('.nav a').forEach(a => a.classList.toggle('on', a.dataset.view === v));
+  document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $('ttl').textContent = TITLES[v];
   if (v === 'models' && !$('mdBody').children.length) loadModels();
   if (v === 'config') loadConfig();
   if (v === 'logs') loadLogs();
+  // 积分历史独立成页：进页面即拉一次，不再跟运行日志挤在一起。
+  if (v === 'credithist') loadCreditHistory();
   if (v === 'usage') loadUsage();
   if (v === 'packages') loadPackages();
   // 到期提醒卡片：默认可见，进页面即用 overview 快照渲染（零上游请求，随首页统计
@@ -391,10 +396,130 @@ function accMatchFilter(s) {
   return true;
 }
 
+/* 手机端「账号卡册」：把账号池从宽表变成"一排页签 + 单账号详情"。
+   页签显示 备注/昵称 + 积分；选中后只渲染该账号（选中项无视状态筛选，永远可见），
+   卡片在 mobile.css 里放大字号与按钮。桌面端 (>760px) 页签隐藏，仍是原表格。 */
+function renderAccChips(list) {
+  const box = $('accChips');
+  if (!box) return;
+  if (!list || !list.length) { box.innerHTML = ''; box.dataset.sig = ''; return; }
+  // overview 是 5 秒轮询：内容没变就不重建，避免把正在横向滑动的页签拽回开头。
+  const sig = (accSel || '') + '|' + list.map(s =>
+    s.uid + ':' + (remarkOf(s.uid) || s.nickname || '') + ':' + (s.credits == null ? '' : s.credits)).join('|');
+  if (sig === box.dataset.sig) return;
+  box.dataset.sig = sig;
+  const keepScroll = box.scrollLeft;
+  const chip = (uid, html, on) =>
+    '<button class="chip' + (on ? ' on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') +
+    '" data-uid="' + esc(uid) + '">' + html + '</button>';
+  let html = chip('', '全部', !accSel);
+  for (const s of list) {
+    const name = remarkOf(s.uid) || s.nickname || String(s.uid).slice(0, 8);
+    const pts = (s.credits == null) ? '—' : s.credits;
+    html += chip(s.uid,
+      '<span class="nm">' + esc(name) + '</span><span class="pt">' + esc(String(pts)) + '</span>',
+      accSel === s.uid);
+  }
+  box.innerHTML = html;
+  box.scrollLeft = keepScroll;
+}
+
+/* 手机端账号卡片：头像 + 名称/状态徽标 + 积分/最近成功 + 操作按钮。
+   桌面端隐藏（.acc-cards 默认 display:none），手机上用来替代宽表（表格在
+   mobile.css 里隐藏）。数据与表格同源，操作按钮由 accountActions 统一生成。 */
+function renderAccountCards(shown, list) {
+  const box = $('accCards');
+  if (!box) return;
+  if (!list.length) {
+    box.innerHTML = '<div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」登录一个 WorkBuddy 账号</div>';
+    return;
+  }
+  if (!shown.length) {
+    box.innerHTML = '<div class="empty"><div class="big">没有符合筛选的账号</div>切换右上角「筛选」查看其他状态</div>';
+    return;
+  }
+  const maxCred = Math.max(1, ...list.map(s => s.credits || 0));
+  box.innerHTML = shown.map(s => {
+    const bl = (new Date(s.breaker_until || 0) - Date.now()) / 1000;
+    const dg = (new Date(s.degrade_until || 0) - Date.now()) / 1000;
+    const cool = Math.max(s.cool_remaining_sec || 0, bl > 0 ? bl : 0, dg > 0 ? dg : 0);
+    const frozen = s.disabled || cool > 0;
+    const name = remarkOf(s.uid) || s.nickname || String(s.uid).slice(0, 8);
+    const unlimited = s.credits_total === -1;
+    const todayGain = Number(s.credits_today_gain || 0);
+    const pct = unlimited ? 100
+      : (s.credits_total > 0
+        ? Math.min(100, Math.round((s.credits || 0) / s.credits_total * 100))
+        : Math.round((s.credits || 0) / maxCred * 100));
+    const credits = unlimited ? '不限'
+      : (s.credits == null ? '—' : String(s.credits)) + (s.credits_total > 0 ? ' / ' + s.credits_total : '');
+    const badges = [];
+    if (s.enterprise) badges.push('<span class="tag">企业版</span>');
+    if (s.realm === 'global') badges.push('<span class="tag">国际版</span>');
+    if (s.checkin_done) badges.push('<span class="tag ok">今日已签到</span>');
+    if (s.disabled) badges.push('<span class="tag bad">已禁用</span>');
+    else if (s.paused) badges.push('<span class="tag warn">暂停选号</span>');
+    else if (cool > 0) badges.push('<span class="tag warn">冷却中</span>');
+    const avaCls = s.disabled ? 'bad' : (s.paused || cool > 0) ? 'warn' : 'ok';
+    const head = name.trim().slice(0, 1) || '账';
+    return '<article class="acard">' +
+      '<div class="acard-top">' +
+        '<div class="ava ' + avaCls + '">' + esc(head) + '</div>' +
+        '<div class="acard-main">' +
+          '<div class="acard-name">' + esc(name) + badges.join('') + '</div>' +
+          '<div class="acard-metrics">' +
+            '<span>积分 <b>' + esc(credits) + '</b></span>' +
+            (todayGain > 0 ? '<span class="today">今日 <b>+' + todayGain + '</b></span>' : '') +
+            (s.last_success ? '<span>最近成功 <b>' + esc(ago(s.last_success)) + '</b></span>' : '') +
+            (s.reason ? '<span class="muted">' + esc(s.reason) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="acard-bar"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="acard-acts">' +
+        (s.enterprise
+          ? '<button data-a="balance" data-u="' + esc(s.uid) + '">额度</button>'
+          : '<button class="act-main" data-a="checkin" data-u="' + esc(s.uid) + '">' + (s.checkin_done ? '再签一次' : '签到') + '</button>' +
+            '<button data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>') +
+        '<button data-more="1" data-u="' + esc(s.uid) + '">更多</button>' +
+      '</div>' +
+    '</article>';
+  }).join('');
+}
+
+/* accountActions 账号操作按钮：桌面表格与手机卡片共用同一套，避免两处逻辑漂移。
+   企业版无个人成长体系：不渲染「签到」「任务」，只留「额度」。 */
+function accountActions(s, frozen) {
+  // 注意 return 后必须紧跟表达式：换行会让 ASI 把返回值变成 undefined（卡片上真的会印出 undefined）。
+  return (
+        // 企业版无个人成长体系（签到 400「企业账号不支持该操作」/ 成长任务 403）：
+        // 不渲染「签到」「任务」按钮，只留「额度」——点它走 /balance，企业额度由
+        // upstream 的 get-enterprise-user-usage 口径填充。
+        (s.enterprise ? '' :
+          '<button class="xs ghost" data-a="checkin" data-u="' + esc(s.uid) + '"' + (s.checkin_done ? ' title="今日已签到；点击可重新签到并刷新余额"' : '') + '>' + (s.checkin_done ? '已签' : '签到') + '</button>') +
+        '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '"' + (s.enterprise ? ' title="刷新企业版已分配额度（上游 get-enterprise-user-usage）"' : '') + '>' + (s.enterprise ? '额度' : '余额') + '</button>' +
+        (s.enterprise ? '' :
+          '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>') +
+        // 选号是反代概念：任务模式（手机端）不渲染暂停/恢复，只保留解冻（session 状态，影响签到）。
+        (runMode === 'tasks'
+          ? (frozen ? '<button class="xs primary" data-a="revive" data-u="' + esc(s.uid) + '">解冻</button>' : '')
+          : (frozen ? '<button class="xs primary" data-a="revive" data-u="' + esc(s.uid) + '">解冻</button>'
+                    : (s.paused ? '<button class="xs primary" data-a="resume" data-u="' + esc(s.uid) + '">恢复选号</button>'
+                                : '<button class="xs ghost" data-a="pause" data-u="' + esc(s.uid) + '" title="' + (s.enterprise ? '退出选号，但照常保活 / 刷新额度' : '退出选号，但照常签到 / 活跃上报 / 保活 / 刷新余额') + '">暂停选号</button>'))) +
+        (s.disabled ? '' : '<button class="xs ghost" data-a="disable" data-u="' + esc(s.uid) + '">禁用</button>') +
+        '<button class="xs ghost danger" data-a="remove" data-u="' + esc(s.uid) + '">移除</button>'
+  );
+}
+
 function renderAccounts(list) {
   accLast = list;
-  const shown = list.filter(accMatchFilter);
+  // 账号被移除 / 换了数据源：选中的 uid 不存在就自动回到「全部」
+  if (accSel && !list.some(s => s.uid === accSel)) accSel = null;
+  renderAccChips(list);
+  const shown = accSel ? list.filter(s => s.uid === accSel) : list.filter(accMatchFilter);
+  renderAccountCards(shown, list);
   const tb = $('accBody');
+  tb.classList.toggle('single', !!accSel && shown.length === 1);
   if (!list.length) {
     tb.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」，用浏览器登录一个 WorkBuddy 账号</div></td></tr>';
     return;
@@ -424,6 +549,7 @@ function renderAccounts(list) {
     // 企业版不限量：上游 limitNum == -1，网关以 credits_total=-1 透出（见 upstream
     // enterpriseUnlimitedTotal）。此时剩余额度不参与展示，直接标「不限」。
     const unlimited = s.credits_total === -1;
+    const todayGain = Number(s.credits_today_gain || 0);
     const cred = unlimited ? '不限'
       : (s.credits == null ? '—' : (s.credits_total > 0 ? s.credits + '<span class="of">/' + s.credits_total + '</span>' : String(s.credits)));
     const pct = unlimited ? 100
@@ -455,7 +581,8 @@ function renderAccounts(list) {
       '<td class="mark" aria-hidden="true"><i></i></td>' +
       '<td class="who"><div class="nm">' + remarkName(s.uid, s.nickname ? esc(s.nickname) : '<span style="color:var(--ink-3)">未命名</span>') + (s.realm === 'global' ? ' <span class="realm-tag">国际版</span>' : '') + (s.enterprise ? ' <span class="realm-tag">企业版</span>' : '') + '</div><div class="id">' + esc(short) + '</div></td>' +
       '<td>' + tag + note + rateLimits + '</td>' +
-      '<td class="cred" title="' + esc(credTip) + '"><div class="n">' + cred + '</div><div class="bar"><i style="width:' + pct + '%"></i></div></td>' +
+      '<td class="cred" title="' + esc(credTip) + '"><div class="n">' + cred + '</div><div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        (todayGain > 0 ? '<div class="today">今日 +' + todayGain + '</div>' : '') + '</td>' +
       '<td class="num">' + (s.success_count || 0) + ' <span style="color:var(--ink-3)">/</span> <span style="color:var(--bad)">' + (s.err_total || 0) + '</span></td>' +
       '<td class="num">' + (s.in_flight || 0) + '</td>' +
       '<td class="num usage-cell" title="' + esc(usageTitle) + '"><span class="usage-line" aria-label="' + esc(usageTitle) + '">' +
@@ -465,21 +592,7 @@ function renderAccounts(list) {
         '<span class="usage-item usage-rate"><b>' + rate + '</b></span>' +
       '</span></td>' +
       '<td class="num" style="color:var(--ink-3)">' + ago(s.last_success) + '</td>' +
-      '<td class="acts">' +
-        // 企业版无个人成长体系（签到 400「企业账号不支持该操作」/ 成长任务 403）：
-        // 不渲染「签到」「任务」按钮，只留「额度」——点它走 /balance，企业额度由
-        // upstream 的 get-enterprise-user-usage 口径填充。
-        (s.enterprise ? '' :
-          '<button class="xs ghost" data-a="checkin" data-u="' + esc(s.uid) + '"' + (s.checkin_done ? ' title="今日已签到；点击可重新签到并刷新余额"' : '') + '>' + (s.checkin_done ? '已签' : '签到') + '</button>') +
-        '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '"' + (s.enterprise ? ' title="刷新企业版已分配额度（上游 get-enterprise-user-usage）"' : '') + '>' + (s.enterprise ? '额度' : '余额') + '</button>' +
-        (s.enterprise ? '' :
-          '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>') +
-        (frozen ? '<button class="xs primary" data-a="revive" data-u="' + esc(s.uid) + '">解冻</button>'
-                : (s.paused ? '<button class="xs primary" data-a="resume" data-u="' + esc(s.uid) + '">恢复选号</button>'
-                            : '<button class="xs ghost" data-a="pause" data-u="' + esc(s.uid) + '" title="' + (s.enterprise ? '退出选号，但照常保活 / 刷新额度' : '退出选号，但照常签到 / 活跃上报 / 保活 / 刷新余额') + '">暂停选号</button>')) +
-        (s.disabled ? '' : '<button class="xs ghost" data-a="disable" data-u="' + esc(s.uid) + '">禁用</button>') +
-        '<button class="xs ghost danger" data-a="remove" data-u="' + esc(s.uid) + '">移除</button>' +
-      '</td></tr>';
+      '<td class="acts">' + accountActions(s, frozen) + '</td></tr>';
   }).join('');
 }
 
@@ -519,10 +632,39 @@ function renderModelLocks(rows) {
   }
 }
 
+/* ── 运行模式（任务模式 / 完整网关）────────────────────────────────────
+   任务模式（手机端 App、`-mode=tasks`）没有 /v1 反代：用量、模型与档位两页只会
+   显示空数据，直接隐藏导航项；若用户正停在那两页，退回账号池。
+   模式来自 overview.mode，每轮刷新都重新应用一次（幂等，不累积状态）。
+   >760px 桌面端不受影响：完整网关模式下 mode='full'，两个分支都不执行。 */
+const TASK_MODE_HIDE = ['usage', 'models'];
+let runMode = 'full';   // 由 applyMode() 从 overview.mode 同步
+function applyMode(mode) {
+  const tasks = mode === 'tasks';
+  document.querySelectorAll('.nav a').forEach(a => {
+    const hide = tasks && TASK_MODE_HIDE.includes(a.dataset.view);
+    a.parentElement.style.display = hide ? 'none' : '';
+  });
+  // 任务模式的界面裁剪统一挂在 body.tasks 上（样式见 index.html 末尾）：
+  // 粘性会话、冷却中、已暂停选号、模型锁池、以及账号表里的反代流量列。
+  runMode = tasks ? 'tasks' : 'full';
+  document.body.classList.toggle('tasks', tasks);
+  // 「粘性会话」是反代概念（多轮对话固定在同一个账号），任务模式没有 /v1 流量，
+  // 这个数字恒为 0，只会占掉一格统计。任务模式下整格隐藏。
+  const sticky = $('sSticky');
+  if (sticky && sticky.closest('.stat')) {
+    sticky.closest('.stat').style.display = tasks ? 'none' : '';
+  }
+  if (tasks && TASK_MODE_HIDE.includes(view)) go('accounts');
+}
+
 async function loadOverview(quiet) {
   try {
     const d = await api('overview');
     overviewData = d;
+    // 备注来自服务端（auth 文件的 note 键）；顺带把浏览器里的旧备注迁移过去。
+    rebuildNotes(d.accounts || []);
+    migrateLocalRemarks(d.accounts || []);
     $('sTotal').textContent = d.total;
     $('sHealthy').textContent = d.healthy;
     $('sCooling').textContent = d.cooling;
@@ -536,6 +678,7 @@ async function loadOverview(quiet) {
     $('navSub').textContent = 'v' + d.version;
     $('navVer').textContent = 'v' + d.version;
     $('navRedis').textContent = d.redis_mode === 'upstash' ? 'Redis 镜像' : '本地内存';
+    applyMode(d.mode);
     $('navState').textContent = d.healthy > 0 ? '服务正常' : (d.total ? '无可用账号' : '待添加账号');
     const p = $('navPulse');
     p.className = 'pulse' + (d.healthy > 0 ? '' : (d.total ? ' warn' : ' bad'));
@@ -552,18 +695,24 @@ async function loadOverview(quiet) {
   } catch (e) { if (!quiet) toast(e.message, 'err'); }
 }
 
+if ($('accChips')) $('accChips').addEventListener('click', ev => {
+  const b = ev.target.closest('.chip');
+  if (!b) return;
+  const uid = b.dataset.uid || null;
+  accSel = (uid && uid !== accSel) ? uid : null;   // 再点一次同一个 = 回到「全部」
+  renderAccounts(accLast);
+});
 if ($('accFilter')) $('accFilter').onchange = () => {
   accFilter = $('accFilter').value;
+  accSel = null;   // 状态筛选与卡册二选一：换筛选就回到「全部」
   renderAccounts(accLast);
 };
 
-$('accBody').addEventListener('click', async ev => {
-  const b = ev.target.closest('button[data-a]');
-  if (!b) return;
-  const u = b.dataset.u, a = b.dataset.a;
+/* executeAccountAction 执行单个账号动作（确认框 + 接口 + toast + 刷新）。
+   桌面表格、手机卡片、手机「更多」菜单共用这一份，避免三处逻辑漂移。 */
+async function executeAccountAction(u, a) {
   if (a === 'remove' && !confirm('移除账号将删除池状态与 auths/ 下的凭证文件，且不可恢复。确认移除？')) return;
   if (a === 'disable' && !confirm('禁用后该账号不再参与选号（保号任务默认也跳过），需手动解冻才能恢复。若只是想临时让位、仍要保号，请改用「暂停选号」。确认禁用？')) return;
-  b.disabled = true;
   try {
     if (a === 'checkin') {
       const r = await api('accounts/' + encodeURIComponent(u) + '/checkin', { method: 'POST' });
@@ -590,8 +739,58 @@ $('accBody').addEventListener('click', async ev => {
       toast(r.file_error ? '已移除（凭证文件删除失败：' + r.file_error + '）' : '已移除', 'ok');
     }
   } catch (e) { toast(e.message, 'err'); }
-  finally { b.disabled = false; loadOverview(true); }
+  finally { loadOverview(true); }
+}
+
+async function onAccountAction(ev) {
+  const b = ev.target.closest('button[data-a]');
+  if (!b) return;
+  b.disabled = true;
+  try { await executeAccountAction(b.dataset.u, b.dataset.a); }
+  finally { b.disabled = false; }
+}
+
+/* 手机卡片「更多」菜单：把 暂停/禁用/移除 这类低频危险操作收进一层，
+   卡片上只留 签到 / 余额 / 更多 三个大按钮（参考常见手机形态）。 */
+function openAccMore(uid, trigger) {
+  const s = (accLast || []).find(x => x.uid === uid);
+  if (!s) return;
+  const name = remarkOf(uid) || s.nickname || String(uid).slice(0, 8);
+  $('accMoreTitle').textContent = name;
+  const rows = [{ a: 'balance', label: s.enterprise ? '刷新企业额度' : '刷新余额' }];
+  if (runMode !== 'tasks') {
+    rows.push(s.paused ? { a: 'resume', label: '恢复选号' } : { a: 'pause', label: '暂停选号' });
+  }
+  rows.push(s.disabled ? { a: 'revive', label: '解冻账号' } : { a: 'disable', label: '禁用账号' });
+  rows.push({ a: 'remove', label: '移除账号', danger: true });
+  $('accMoreBody').innerHTML = rows.map(r =>
+    '<button class="amore-row' + (r.danger ? ' danger' : '') + '" data-a="' + r.a +
+    '" data-u="' + esc(uid) + '">' + esc(r.label) + '</button>').join('');
+  $('accMoreVeil').classList.add('on');
+  if (trigger) trigger.blur();
+}
+if ($('btnAccMoreClose')) $('btnAccMoreClose').onclick = () => $('accMoreVeil').classList.remove('on');
+if ($('accMoreBody')) $('accMoreBody').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-a]');
+  if (!b) return;
+  $('accMoreVeil').classList.remove('on');
+  await executeAccountAction(b.dataset.u, b.dataset.a);
 });
+
+$('accBody').addEventListener('click', onAccountAction);
+// 手机卡片列表与表格共用同一处理器（按钮都带 data-a/data-u）
+if ($('accCards')) $('accCards').addEventListener('click', onAccountAction);
+// 「更多」：按钮没有 data-a，单独委托，不参与上面的动作处理
+if ($('accCards')) $('accCards').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-more]');
+  if (b) openAccMore(b.dataset.u, b);
+});
+// 底部标签栏（手机端）
+if ($('tabbar')) {
+  document.querySelectorAll('#tabbar button').forEach(b => {
+    b.onclick = () => go(b.dataset.view);
+  });
+}
 
 $('btnCheckinAll').onclick = async () => {
   try { await api('checkin_all', { method: 'POST' }); toast('全部签到已开始，结果见日志', 'ok'); }
@@ -1002,15 +1201,16 @@ function creditSummaryText(s) {
   return t;
 }
 function renderCreditSummary(s) {
-  const wrap = $('creditSumWrap'), body = $('creditSumBody'), note = $('creditSumNote');
-  if (!wrap || !body) return;
+  // 汇总与明细现在是两张卡：没有汇总数据时整卡隐藏（否则会留一个空标题框）
+  const box = $('creditSumBox'), body = $('creditSumBody'), note = $('creditSumNote');
+  if (!box || !body) return;
   const rows = (s && s.accounts) || [];
   if (!rows.length) {
-    wrap.hidden = true;
+    box.hidden = true;
     if (note) note.textContent = '';
     return;
   }
-  wrap.hidden = false;
+  box.hidden = false;
   if (note) note.textContent = creditSummaryText(s);
   body.innerHTML = rows.map(a => '<tr>' +
     '<td>' + esc(a.account || a.uid || '—') + '</td>' +
@@ -1347,15 +1547,39 @@ function openAdd() {
   $('addPick').hidden = false;
   $('addLoad').hidden = true; $('addReady').hidden = true;
   $('addDone').hidden = true; $('addErr').hidden = true;
-  $('importDone').hidden = true; $('importErr').hidden = true;
   $('btnCopyUrl').hidden = true; $('btnOpenUrl').hidden = true;
   $('btnStartLogin').hidden = false; $('btnStartLogin').disabled = false;
+  // 导入页状态复位：文件、选中提示、结果、"完成/重试"按钮的形态
+  importFileObj = null;
+  $('importFile').value = '';
+  $('importPicked').hidden = true;
+  $('importLoad').hidden = true;
+  $('importDone').hidden = true; $('importErr').hidden = true;
+  $('btnImport').textContent = '导入账号';
+  $('btnImport').disabled = true;
+  delete $('btnImport').dataset.done;
   stopPoll();
 }
 function switchAddTab(tab) {
   document.querySelectorAll('#addTabs .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   $('addTabLogin').hidden = tab !== 'login';
   $('addTabImport').hidden = tab !== 'import';
+  // 页脚按钮跟着标签走：导入页只留「导入账号 / 关闭」，登录页按会话状态恢复。
+  // 之前两页共用同一组按钮，导入页上最显眼的是「获取授权链接」，用户不知道该点哪。
+  const isImport = tab === 'import';
+  $('btnImport').hidden = !isImport;
+  if (isImport) {
+    $('btnStartLogin').hidden = true;
+    $('btnCopyUrl').hidden = true;
+    $('btnOpenUrl').hidden = true;
+    $('btnImport').disabled = !importFileObj;
+  } else {
+    const started = !!loginState;
+    $('btnStartLogin').hidden = started;
+    $('btnStartLogin').disabled = false;
+    $('btnCopyUrl').hidden = !started;
+    $('btnOpenUrl').hidden = !started;
+  }
 }
 document.querySelectorAll('#addTabs .tab').forEach(b => {
   b.onclick = () => switchAddTab(b.dataset.tab);
@@ -1404,30 +1628,131 @@ $('btnStartLogin').onclick = startAddLogin;
 $('btnOpenUrl').onclick = () => open($('addUrl').textContent, '_blank');
 $('btnCopyUrl').onclick = () => navigator.clipboard.writeText($('addUrl').textContent)
   .then(() => toast('链接已复制', 'ok'), () => toast('复制失败，请手动选择复制', 'err'));
-$('importFile').onchange = async () => {
-  const file = $('importFile').files[0];
-  if (!file) return;
+/* ── 导入 JSON：选文件 → 显式点「导入账号」 → 看结果 ────────────────────
+   旧实现是 onchange 直接上传：用户选完文件页面毫无反馈，只有关掉弹窗才看到
+   账号出现，会误以为"关闭"才是导入按钮。现在拆成两步，并且成功后按钮变成
+   「完成」，再点一次才关窗刷新——每一步都有明确的可点目标。 */
+$('importFile').onchange = () => {
+  importFileObj = $('importFile').files[0] || null;
   $('importDone').hidden = true; $('importErr').hidden = true;
+  $('btnImport').textContent = '导入账号';
+  delete $('btnImport').dataset.done;
+
+  const picked = $('importPicked');
+  picked.hidden = !importFileObj;
+  if (importFileObj) {
+    const kb = Math.max(1, Math.round(importFileObj.size / 1024));
+    picked.textContent = '已选择：' + importFileObj.name + '（' + kb + ' KB）';
+  }
+  $('btnImport').disabled = !importFileObj;
+};
+
+$('btnImport').onclick = async () => {
+  const btn = $('btnImport');
+  // 导入成功后按钮变「完成」：这一下只负责关窗 + 刷新，不再重复上传。
+  if (btn.dataset.done === '1') {
+    closeAdd();
+    loadOverview(true);
+    return;
+  }
+  if (!importFileObj) return;
+
+  btn.disabled = true;
+  btn.textContent = '导入中…';
+  $('importErr').hidden = true;
+  $('importDone').hidden = true;
+  $('importLoad').hidden = false;
+  $('importLoad').innerHTML = '<span class="dots">正在导入账号</span>';
+
+  // 每个账号要串行做「签到 + 余额查询」两次上游请求，15 个号通常 20-60 秒。
+  // 进度 id 由前端生成并带在 POST 上：请求还没返回时就能轮询同一个 id 看 7/15。
+  const jobId = 'imp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  const poll = setInterval(async () => {
+    try {
+      const st = await api('import/status?id=' + encodeURIComponent(jobId));
+      if (st && st.total) {
+        $('importLoad').innerHTML = '<span class="dots">正在导入 ' + st.done + '/' + st.total + '</span>';
+      }
+    } catch (e) { /* 进度只是增强信息，失败不打断导入 */ }
+  }, 700);
+
   const fd = new FormData();
-  fd.append('file', file);
+  fd.append('file', importFileObj, importFileObj.name);
   const h = {};
   const k = localStorage.getItem(LS_KEY);
   if (k) h['Authorization'] = 'Bearer ' + k;
+
   try {
-    const r = await fetch('/panel/api/import/cockpit', { method: 'POST', body: fd, headers: h });
-    const d = await r.json();
+    const r = await fetch('/panel/api/import/cockpit?id=' + encodeURIComponent(jobId), { method: 'POST', body: fd, headers: h });
+    const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+
+    $('importLoad').hidden = true;
+    $('importPicked').hidden = true;
     $('importDone').hidden = false;
-    $('importDone').textContent = '导入完成：成功 ' + d.imported + ' 个' + (d.skipped ? '，跳过 ' + d.skipped + ' 个' : '');
-    if (d.errors && d.errors.length) {
-      console.warn('import errors:', d.errors);
-    }
+    $('importDone').textContent = '导入完成：成功 ' + d.imported + ' 个'
+      + (d.skipped ? '，跳过 ' + d.skipped + ' 个' : '')
+      + (d.errors && d.errors.length ? '（失败原因见运行日志）' : '');
+    if (d.errors && d.errors.length) console.warn('import errors:', d.errors);
+
+    // 成功后不再允许重复提交；按钮换成「完成」给出明确的收尾动作。
+    btn.textContent = '完成';
+    btn.dataset.done = '1';
+    btn.disabled = false;
+    $('importFile').value = '';
+    importFileObj = null;
     loadOverview(true);
   } catch (e) {
+    $('importLoad').hidden = true;
     $('importErr').hidden = false;
     $('importErr').textContent = '导入失败：' + e.message;
+    btn.textContent = '重试导入';
+    btn.disabled = false;
+  } finally {
+    clearInterval(poll);
   }
-  $('importFile').value = '';
+};
+
+/* ── 导出账号（迁移用：桌面 ↔ 桌面 / 桌面 ↔ 手机）─────────────────────
+   导出内容与导入端同格式，额外带 note（备注）。手机端 WebView 里 <a download>
+   不一定生效，所以同时提供「复制」作为兜底。 */
+if ($('btnExport')) $('btnExport').onclick = async () => {
+  const btn = $('btnExport');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '导出中…';
+  try {
+    const list = await api('export/cockpit');
+    const arr = Array.isArray(list) ? list : [];
+    $('exportBody').value = JSON.stringify(arr, null, 2);
+    $('exportCount').textContent = arr.length
+      ? ('共 ' + arr.length + ' 个账号，含备注与凭证')
+      : '当前没有账号可导出';
+    $('exportVeil').classList.add('on');
+  } catch (e) {
+    toast('导出失败：' + e.message, 'err');
+  }
+  btn.disabled = false;
+  btn.textContent = label;
+};
+if ($('btnExportClose')) $('btnExportClose').onclick = () => $('exportVeil').classList.remove('on');
+if ($('btnExportCopy')) $('btnExportCopy').onclick = () =>
+  navigator.clipboard.writeText($('exportBody').value)
+    .then(() => toast('已复制到剪贴板，可存成 .json 再导入', 'ok'),
+          () => toast('复制失败：请长按选择文本', 'err'));
+if ($('btnExportSave')) $('btnExportSave').onclick = () => {
+  try {
+    const blob = new Blob([$('exportBody').value], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cockpit-accounts.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) {
+    toast('下载失败，请改用「复制」保存文件', 'err');
+  }
 };
 
 /* ── 顶部动作 ─────────────────────────────────────────────────────── */
@@ -1442,6 +1767,7 @@ $('btnRefresh').onclick = async () => {
   } catch (e) { toast('刷新失败：' + e.message, 'err'); await loadOverview(true); }
   finally { b.disabled = false; b.textContent = '刷新'; }
   if (view === 'logs') loadLogs();
+  else if (view === 'credithist') loadCreditHistory();
 };
 
 /* ── 官方补偿（issue #189）─────────────────────────────────────────
@@ -1621,6 +1947,7 @@ if ($('btnCompClaimAll')) $('btnCompClaimAll').onclick = async () => {
 function refreshVisible() {
   if (view === 'accounts') { loadOverview(true); renderCachedCompensation(); }
   else if (view === 'logs') loadLogs();
+  else if (view === 'credithist') loadCreditHistory();
   else if (view === 'taskscenter') reattachQueueView();
 }
 function start() {
@@ -1638,6 +1965,8 @@ start();
 
 /* ── 积分任务 ─────────────────────────────────────────────────────── */
 let taskUID = null;
+let taskCache = [];      // 当前账号的任务列表（表格与手机卡片共用）
+let taskFilter = 'all';  // all | open | done
 
 // 可自动完成的任务（与后端 autoActions 表一致）：判据为行为事件、可经网关复现。
 // 其余任务需在官方客户端内交互，面板只展示指引（行 title 提示）。
@@ -1677,6 +2006,8 @@ const AUTO_TASKS = {
 
 function openTasks(uid) {
   taskUID = uid;
+  taskFilter = 'all';
+  document.querySelectorAll('#taskFilters .chip').forEach(b => b.classList.toggle('on', b.dataset.tf === 'all'));
   $('taskWho').textContent = uid.slice(0, 16);
   $('taskVeil').classList.add('on');
   $('btnTaskReload').hidden = false;
@@ -1720,6 +2051,73 @@ $('btnTaskAutoAll').onclick = async () => {
   finally { btn.disabled = false; btn.textContent = '一键完成可自动任务'; loadTasks(); }
 };
 
+/* 任务条目小工具：表格与手机卡片共用，避免两处状态/文案漂移。 */
+function taskProgress(t) {
+  const cur = t.current ?? 0, tgt = t.target ?? 0;
+  return tgt ? cur + ' / ' + tgt : (tgt === 0 && cur > 0 ? String(cur) : '—');
+}
+function taskReward(t) {
+  const parts = [];
+  if (t.credit) parts.push('+' + t.credit + ' 分');
+  if (t.energy) parts.push('+' + t.energy + ' 能');
+  if (t.reward_buddy) parts.push('Buddy');
+  return parts.length ? parts.join(' ') : '—';
+}
+function taskBadge(t) {
+  return t.claimed ? '<span class="tag ok">已领取</span>'
+    : t.claimable ? '<span class="tag warn">可领取</span>'
+    : t.locked ? '<span class="tag mute">未解锁</span>'
+    : t.accept_status === 'accepted' ? '<span class="tag mute">进行中</span>'
+    : '<span class="tag mute">未接受</span>';
+}
+function taskAction(t) {
+  if (t.claimed || t.locked) return '';
+  if (t.claimable) return '<button class="xs primary" data-t="claim" data-c="' + esc(t.task_code) + '">领取</button>';
+  if (AUTO_TASKS[t.task_code]) {
+    return '<button class="xs primary" data-t="auto" data-c="' + esc(t.task_code) + '" title="' + esc(AUTO_TASKS[t.task_code]) + '">一键完成</button>';
+  }
+  if (t.accept_status === 'accepted') return '';
+  return '<button class="xs" data-t="accept" data-c="' + esc(t.task_code) + '">接受</button>';
+}
+function taskVisible(t) {
+  if (taskFilter === 'done') return !!t.claimed;
+  if (taskFilter === 'open') return !t.claimed;
+  return true;
+}
+/* 手机端任务卡片：✓/○ + 任务名 + 说明 + 进度 + 奖励/状态 + 操作。 */
+function renderTaskCards() {
+  const box = $('taskCards');
+  if (!box) return;
+  if (!taskCache.length) { box.innerHTML = ''; return; }
+  const list = taskCache.filter(taskVisible);
+  if (!list.length) { box.innerHTML = '<div class="empty">当前筛选下没有任务</div>'; return; }
+  box.innerHTML = list.map(t => {
+    const done = !!t.claimed;
+    const desc = t.task_desc || t.description || '';
+    return '<div class="tcard">' +
+      '<span class="ico' + (done ? ' ok' : '') + '">' + (done ? '✓' : '○') + '</span>' +
+      '<div class="tmain">' +
+        '<div class="nm">' + esc(t.title || t.task_code) + '</div>' +
+        (desc ? '<div class="desc">' + esc(desc) + '</div>' : '') +
+        '<div class="meta">进度 ' + esc(taskProgress(t)) + (t.tag ? ' · ' + esc(t.tag) : '') + '</div>' +
+      '</div>' +
+      '<div class="tright"><div class="pts">' + esc(taskReward(t)) + '</div>' + taskBadge(t) + '</div>' +
+      '<div class="tact">' + taskAction(t) + '</div>' +
+    '</div>';
+  }).join('');
+}
+function updateTaskChrome(list) {
+  const done = list.filter(t => t.claimed).length;
+  const pts = list.reduce((n, t) => n + (Number(t.credit) || 0), 0);
+  if ($('taskSum')) {
+    $('taskSum').hidden = !list.length;
+    $('tsDone').textContent = done;
+    $('tsOpen').textContent = list.length - done;
+    $('tsPts').textContent = (pts >= 0 ? '+' : '') + pts;
+  }
+  if ($('taskFilters')) $('taskFilters').hidden = !list.length;
+}
+
 async function loadTasks() {
   if (!taskUID) return;
   const st = $('taskState'), tb = $('taskTable');
@@ -1731,31 +2129,20 @@ async function loadTasks() {
     const d = await api('accounts/' + encodeURIComponent(taskUID) + '/tasks');
     const list = d.tasks || [];
     if (!list.length) {
+      taskCache = []; updateTaskChrome([]); renderTaskCards();
       st.className = 'state';
       st.textContent = '该账号暂无任务';
       return;
     }
     // 有进度或可领取的排前面，已领取沉底——一眼看到"现在该做什么"。
     list.sort((a, b) => (a.claimed - b.claimed) || (b.claimable - a.claimable) || String(a.task_code).localeCompare(String(b.task_code)));
+    taskCache = list;
+    updateTaskChrome(list);
+    renderTaskCards();
     $('taskBody').innerHTML = list.map(t => {
-      // 进度：current 可能缺失（0 或被上游省略）——用 ?? 兜底，避免渲染成 "undefined / N"
-      const cur = t.current ?? 0, tgt = t.target ?? 0;
-      const prog = tgt ? cur + ' / ' + tgt : (tgt === 0 && cur > 0 ? String(cur) : '—');
-      const parts = [];
-      if (t.credit) parts.push('+' + t.credit + ' 分');
-      if (t.energy) parts.push('+' + t.energy + ' 能');
-      if (t.reward_buddy) parts.push('Buddy');
-      const reward = parts.length ? parts.join(' ') : '—';
-      const badge = t.claimed ? '<span class="tag ok">已领取</span>'
-        : t.claimable ? '<span class="tag warn">可领取</span>'
-        : t.locked ? '<span class="tag mute">未解锁</span>'
-        : t.accept_status === 'accepted' ? '<span class="tag mute">进行中</span>'
-        : '<span class="tag mute">未接受</span>';
-      const acted = t.claimed || t.locked ? ''
-        : t.claimable ? '<button class="xs primary" data-t="claim" data-c="' + esc(t.task_code) + '">领取</button>'
-        : AUTO_TASKS[t.task_code] ? '<button class="xs primary" data-t="auto" data-c="' + esc(t.task_code) + '" title="' + esc(AUTO_TASKS[t.task_code]) + '">一键完成</button>'
-        : t.accept_status === 'accepted' ? ''
-        : '<button class="xs" data-t="accept" data-c="' + esc(t.task_code) + '">接受</button>';
+      // 进度/奖励/状态/操作统一走 taskProgress/taskReward/taskBadge/taskAction
+      const prog = taskProgress(t), reward = taskReward(t);
+      const badge = taskBadge(t), acted = taskAction(t);
       // 操作指引（description/task_desc）挂 title 提示：如何完成交给用户看
       const tip = [t.title, t.task_desc || t.description, t.jump_url ? '跳转：' + t.jump_url : ''].filter(Boolean).join('\n');
       return '<tr title="' + esc(tip) + '"><td class="mark" aria-hidden="true"><i></i></td>' +
@@ -1773,7 +2160,7 @@ async function loadTasks() {
   }
 }
 
-$('taskBody').addEventListener('click', async ev => {
+async function onTaskAction(ev) {
   const b = ev.target.closest('button[data-t]');
   if (!b || !taskUID) return;
   const kind = b.dataset.t, code = b.dataset.c;
@@ -1806,7 +2193,26 @@ $('taskBody').addEventListener('click', async ev => {
     }
   } catch (e) { toast(e.message, 'err'); }
   finally { loadTasks(); }
+}
+$('taskBody').addEventListener('click', onTaskAction);
+// 手机卡片列表与表格共用同一处理器（按钮都带 data-t/data-c）
+if ($('taskCards')) $('taskCards').addEventListener('click', onTaskAction);
+
+/* 手机端筛选页签 + 复制清单：只影响卡片列表，表格保持全量（桌面用）。 */
+document.querySelectorAll('#taskFilters .chip').forEach(b => {
+  b.onclick = () => {
+    taskFilter = b.dataset.tf;
+    document.querySelectorAll('#taskFilters .chip').forEach(x => x.classList.toggle('on', x === b));
+    renderTaskCards();
+  };
 });
+if ($('btnTaskCopy')) $('btnTaskCopy').onclick = () => {
+  const lines = taskCache.map(t =>
+    (t.claimed ? '[已完成] ' : '[未完成] ') + (t.title || t.task_code) +
+    ' · 进度 ' + taskProgress(t) + ' · ' + taskReward(t));
+  navigator.clipboard.writeText(lines.join('\n'))
+    .then(() => toast('任务清单已复制', 'ok'), () => toast('复制失败', 'err'));
+};
 
 /* ── 任务中心：开学季 + 全账号扫描/队列 ──────────────────────────── */
 // 开学季任务单元：✓ 已领（绿）｜◐ x/y 进行中（琥珀）｜○ 未做（灰）
@@ -2092,6 +2498,13 @@ $('btnRunQueue').onclick = async () => {
   } catch (e) { toast(e.message, 'err'); }
   finally { b.disabled = false; b.textContent = '执行全部待办'; }
 };
+if ($('qcFilters')) $('qcFilters').addEventListener('click', ev => {
+  const b = ev.target.closest('.chip');
+  if (!b) return;
+  qcFilter = b.dataset.qf || 'all';
+  document.querySelectorAll('#qcFilters .chip').forEach(c => c.classList.toggle('on', c === b));
+  paintQueue();
+});
 // 扫描结果 → 分组条目（无执行状态）
 function groupItems(d) {
   const groups = [];
@@ -2120,9 +2533,39 @@ function qrowHTML(it) {
     '<span class="msg">' + esc(it.message || '') + '</span>' +
     '</div>';
 }
+/* 任务中心（手机端）与「任务」抽屉同形：汇总 → 筛选 → 按账号分组的卡片。
+   桌面端 .tsum/.tfilters 隐藏，列表仍是原来的横向行。 */
+let qcGroups = [], qcProgress = null, qcFilter = 'all';
+const QC_MATCH = {
+  all: () => true,
+  open: it => it.status !== 'done' && it.status !== 'skipped' && it.status !== 'error',
+  done: it => it.status === 'done' || it.status === 'skipped',
+  err: it => it.status === 'error',
+};
+function paintQueue() {
+  if (!qcGroups.length) { $('qcList').innerHTML = ''; updateProgress(qcProgress); return; }
+  const match = QC_MATCH[qcFilter] || QC_MATCH.all;
+  const shown = qcGroups
+    .map(g => ({ uid: g.uid, nick: g.nick, rows: g.rows.filter(match) }))
+    .filter(g => g.rows.length);
+  $('qcList').innerHTML = shown.length
+    ? shown.map(g =>
+      '<div class="qgroup"><header><span class="nm">' + esc(g.nick || g.uid.slice(0, 12)) +
+      '</span><span class="cnt">' + g.rows.length + ' 项</span></header>' +
+      g.rows.map(qrowHTML).join('') + '</div>').join('')
+    : '<div class="empty">没有符合筛选的任务</div>';
+  updateProgress(qcProgress);
+}
 function renderQueue(groups, progress, emptyTitle, emptyDesc) {
+  qcGroups = groups || [];
+  qcProgress = progress || null;
+  let total = 0, pts = 0;
+  for (const g of qcGroups) for (const r of g.rows) { total++; pts += Number(r.credit) || 0; }
+  if ($('qsTodo')) $('qsTodo').textContent = total;
+  if ($('qsAccts')) $('qsAccts').textContent = qcGroups.length;
+  if ($('qsPts')) $('qsPts').textContent = '+' + pts;
   const empty = $('tcEmpty'), list = $('qcList');
-  if (!groups.length) {
+  if (!qcGroups.length) {
     empty.style.display = '';
     if (emptyTitle) empty.querySelector('.t').textContent = emptyTitle;
     if (emptyDesc) empty.querySelector('.d').textContent = emptyDesc;
@@ -2131,15 +2574,8 @@ function renderQueue(groups, progress, emptyTitle, emptyDesc) {
     return;
   }
   empty.style.display = 'none';
-  empty.style.display = 'none';
-  let total = 0;
-  list.innerHTML = groups.map(g => {
-    total += g.rows.length;
-    return '<div class="qgroup"><header><span class="nm">' + esc(g.nick || g.uid.slice(0, 12)) + '</span><span class="cnt">' + g.rows.length + ' 项待办</span></header>' +
-      g.rows.map(qrowHTML).join('') + '</div>';
-  }).join('');
   $('qcSummary').textContent = total + ' 项';
-  updateProgress(progress);
+  paintQueue();
 }
 function updateProgress(q) {
   if (!q || !q.items) { $('qProg').hidden = true; return; }
@@ -2973,8 +3409,31 @@ function renderExpiryDistribution(list, now) {
     '<div class="pk-expiry-foot">' + esc(foot) + '</div>';
 }
 
+/* 手机端「积分构成」的账号页签：与账号池同形态（.acc-chips 在桌面端隐藏）。
+   选中一个账号后，到期分布 / 汇总卡 / 逐包明细都只保留它——手机上 15 个账号
+   叠在一起根本没法看某一号还剩什么。 */
+function renderPkChips(list) {
+  const box = $('pkChips');
+  if (!box) return;
+  if (!list || !list.length) { box.innerHTML = ''; return; }
+  const chip = (uid, html, on) =>
+    '<button class="chip' + (on ? ' on' : '') + '" role="tab" aria-selected="' +
+    (on ? 'true' : 'false') + '" data-uid="' + esc(uid) + '">' + html + '</button>';
+  let html = chip('', '全部', !pkSel);
+  for (const a of list) {
+    const name = remarkOf(a.uid) || a.nickname || String(a.uid).slice(0, 8);
+    const pts = a.error ? '查询失败' : (a.remain == null ? '—' : fmtTok(a.remain));
+    html += chip(a.uid, '<span class="nm">' + esc(name) + '</span><span class="pt">' +
+      esc(pts) + '</span>', pkSel === a.uid);
+  }
+  box.innerHTML = html;
+}
+
 function renderPackages(d, detailLimit) {
-  const list = (d.accounts || []);
+  const all = (d.accounts || []);
+  if (pkSel && !all.some(a => a.uid === pkSel)) pkSel = null;
+  renderPkChips(all);
+  const list = pkSel ? all.filter(a => a.uid === pkSel) : all;
   const now = Date.now();
   const expiryColors = pkAccountColorMap(list);
   renderExpiryDistribution(list, now);
@@ -3098,6 +3557,14 @@ function renderPackages(d, detailLimit) {
   }).join('');
 }
 
+if ($('pkChips')) $('pkChips').addEventListener('click', ev => {
+  const b = ev.target.closest('.chip');
+  if (!b) return;
+  const uid = b.dataset.uid || null;
+  pkSel = (uid && uid !== pkSel) ? uid : null;   // 再点一次同一个 = 回到「全部」
+  if (lastPackages) renderPackages(lastPackages, lastDetailLimit);
+});
+
 if ($('pkDetail')) $('pkDetail').addEventListener('click', ev => {
   const btn = ev.target.closest('button[data-pk-group]');
   if (!btn) return;
@@ -3159,7 +3626,7 @@ async function loadPackages(force) {
   if (!force && lastPackages) {
     renderPackages(lastPackages, lastDetailLimit);
     const ageMin = Math.floor((Date.now() - lastPackagesAt) / 60000);
-    if (ageMin > 0) $('pkNote').textContent = lastPackages.accounts.length + ' 个账号 · ' + ageMin + ' 分钟前的数据，点「刷新」更新';
+    if (ageMin > 0) $('pkNote').textContent = (pkSel ? 1 : lastPackages.accounts.length) + ' 个账号 · ' + ageMin + ' 分钟前的数据，点「刷新」更新';
     return;
   }
   $('pkSummary').innerHTML = '<div class="empty">查询中…（逐账号向上游实时查询）</div>';
@@ -3421,41 +3888,71 @@ if ($('btnExp')) $('btnExp').onclick = () => loadExpiry(true);
 // 「刷新」始终实时查（显式 force，不依赖事件对象真值）
 if ($('btnPk')) $('btnPk').onclick = () => loadPackages(true);
 
-/* ══ 账号备注（只写本机 localStorage；账号池 / 用量两个视图共用同一份映射）══════
-   键取 uid 前 8 位——与 renderUsageDim 账号维度的 key 和积分扣除表的 uid 前缀同源，
-   三个表格因此都能直接 join。展示层只替换文本并挂 .rm-ghost 虚体，账号标识本身
-   仍由服务端下发，不写回后端；备注是纯展示层信息，不参与选号 / 计费 / 鉴权。 */
-function remarksAll() {
-  if (remarksCache) return remarksCache;
-  try { remarksCache = JSON.parse(localStorage.getItem(LS_REMARKS)) || {}; }
-  catch (e) { remarksCache = {}; }
-  return remarksCache;
+/* ══ 账号备注（服务端，落在 auth 文件的 note 键）══════════════════════════
+   早期版本只存浏览器 localStorage：换机器、复制 auths 目录、或用 cockpit JSON
+   迁移时备注全丢。现在备注是账号元数据 —— 面板改 → POST /accounts/{uid}/note →
+   写回 auths/workbuddy-*.json 的顶层 note → 复制目录或用「导出账号」都会带走。
+   localStorage 只用于一次性迁移旧备注（迁移完即删）。 */
+let notesByUid = {};   // 完整 uid → note
+let notesBy8 = {};     // uid 前 8 位 → note（用量表按前缀 join）
+let remarksMigrated = false;
+
+function rebuildNotes(accounts) {
+  notesByUid = {}; notesBy8 = {};
+  for (const s of accounts || []) {
+    if (!s || !s.uid) continue;
+    const n = String(s.note || '').trim();
+    if (!n) continue;
+    notesByUid[s.uid] = n;
+    notesBy8[String(s.uid).slice(0, 8)] = n;
+  }
 }
-function remarkKey(uid) { return String(uid == null ? '' : uid).slice(0, 8); }
 function remarkOf(uid) {
-  const k = remarkKey(uid);
-  return k ? String(remarksAll()[k] || '') : '';
+  const s = String(uid == null ? '' : uid);
+  if (!s) return '';
+  return notesByUid[s] || notesBy8[s] || '';
 }
 /* nameHtml 必须是已转义的 HTML；有备注时返回「备注 + 原标识（浅色虚体）」 */
 function remarkName(uid, nameHtml) {
   const r = remarkOf(uid);
   return r ? esc(r) + '<span class="rm-ghost">' + nameHtml + '</span>' : nameHtml;
 }
-function storeRemarks(map) {
-  remarksCache = map;
-  try { localStorage.setItem(LS_REMARKS, JSON.stringify(map)); } catch (e) {}
+
+/* 一次性迁移：把浏览器里旧的 localStorage 备注推给后端，成功后清掉本机副本。
+   只有「服务端还没有备注」的账号才推，不会覆盖别处刚设的备注。 */
+async function migrateLocalRemarks(accounts) {
+  if (remarksMigrated) return;
+  remarksMigrated = true;
+  let legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem(LS_REMARKS)); } catch (e) { legacy = null; }
+  if (!legacy) return;
+  const keys = Object.keys(legacy);
+  if (!keys.length) { try { localStorage.removeItem(LS_REMARKS); } catch (e) {} return; }
+
+  let moved = 0;
+  for (const s of accounts || []) {
+    const k = String(s.uid).slice(0, 8);
+    const v = String(legacy[k] || '').trim();
+    if (!v || String(s.note || '').trim()) continue;
+    try {
+      await api('accounts/' + encodeURIComponent(s.uid) + '/note', {
+        method: 'POST', body: JSON.stringify({ note: v }),
+      });
+      s.note = v;
+      moved++;
+    } catch (e) { /* 单个失败不影响其它账号 */ }
+  }
+  try { localStorage.removeItem(LS_REMARKS); } catch (e) {}
+  rebuildNotes(accounts);
+  if (moved) toast('已把本机备注迁移进账号文件（' + moved + ' 个）', 'ok');
 }
 
-/* 编辑器的行来自 overview 缓存（账号池加载过就有），另外补上「已有备注但当前列表里
-   没有」的键，避免账号被移除后备注看起来凭空消失。 */
+/* 编辑器行来自 overview 缓存；备注已落盘，账号被移除后备注随文件一起消失，
+   不再需要"补回孤儿键"。 */
 function remarkFormRows() {
-  const rows = ((overviewData && overviewData.accounts) || [])
-    .map(s => ({ uid: remarkKey(s.uid), who: s.nickname || remarkKey(s.uid) }))
+  return ((overviewData && overviewData.accounts) || [])
+    .map(s => ({ uid: s.uid, who: s.nickname || String(s.uid).slice(0, 8), note: String(s.note || '') }))
     .filter(r => r.uid);
-  for (const k of Object.keys(remarksAll())) {
-    if (!rows.some(r => r.uid === k)) rows.push({ uid: k, who: k });
-  }
-  return rows;
 }
 function renderRemarkBody() {
   const box = $('remarkBody');
@@ -3463,7 +3960,7 @@ function renderRemarkBody() {
   const rows = remarkFormRows();
   box.innerHTML = rows.length
     ? rows.map(r => '<div class="rm-row"><span class="rm-who" title="' + esc(r.who) + '">' + esc(r.who) + '</span>' +
-        '<input type="text" data-uid="' + esc(r.uid) + '" value="' + esc(remarksAll()[r.uid] || '') + '" placeholder="备注（留空即清除）" maxlength="24"></div>').join('')
+        '<input type="text" data-uid="' + esc(r.uid) + '" value="' + esc(r.note) + '" placeholder="备注（留空即清除）" maxlength="24"></div>').join('')
     : '<div class="empty">暂无账号：先在「账号池」加载一次账号列表。</div>';
 }
 function openRemarks() {
@@ -3471,22 +3968,36 @@ function openRemarks() {
   if ($('remarkVeil')) $('remarkVeil').classList.add('on');
 }
 function closeRemarks() { if ($('remarkVeil')) $('remarkVeil').classList.remove('on'); }
-function saveRemarkForm() {
-  const map = {};
+
+async function saveRemarkForm() {
+  const rows = [];
   document.querySelectorAll('#remarkBody input[data-uid]').forEach(inp => {
-    const v = inp.value.trim();
-    if (v) map[inp.getAttribute('data-uid')] = v;
+    rows.push({ uid: inp.getAttribute('data-uid'), note: inp.value.trim() });
   });
-  storeRemarks(map);
+  // 只提交有变化的：备注要写盘，没必要为没改过的账号各写一次。
+  const changed = rows.filter(r => r.note !== String(notesByUid[r.uid] || ''));
+  if (!changed.length) { closeRemarks(); toast('没有改动', 'ok'); return; }
+
+  let ok = 0, fail = 0;
+  for (const r of changed) {
+    try {
+      await api('accounts/' + encodeURIComponent(r.uid) + '/note', {
+        method: 'POST', body: JSON.stringify({ note: r.note }),
+      });
+      ok++;
+    } catch (e) { fail++; }
+  }
   closeRemarks();
-  // 备注只影响本机展示：重渲染当前视图即可，无需后端参与。
-  if (view === 'accounts') loadOverview(true);
-  else if (view === 'usage' && usageData) renderUsage(usageData);
-  toast('备注已保存（仅本机浏览器）');
+  await loadOverview(true);
+  toast(fail ? ('已保存 ' + ok + ' 个，失败 ' + fail + ' 个') : ('备注已保存（' + ok + ' 个）'), fail ? 'err' : 'ok');
 }
 if ($('btnRemarks')) $('btnRemarks').onclick = openRemarks;
 if ($('btnRemarkClose')) $('btnRemarkClose').onclick = closeRemarks;
-if ($('btnRemarkClear')) $('btnRemarkClear').onclick = () => { storeRemarks({}); renderRemarkBody(); };
+/* 「清空全部」= 把当前账号的备注全部置空（服务端），不是清浏览器缓存 */
+if ($('btnRemarkClear')) $('btnRemarkClear').onclick = () => {
+  document.querySelectorAll('#remarkBody input[data-uid]').forEach(inp => { inp.value = ''; });
+  saveRemarkForm();
+};
 if ($('btnRemarkSave')) $('btnRemarkSave').onclick = saveRemarkForm;
 
 /* ══ 首页「积分到期提醒」折叠（选择记在本机，默认展开）═════════════════════
@@ -3527,3 +4038,17 @@ if ($('btnCompFold')) {
   };
 }
 applyCompFold();
+
+/* ══ 手机壳悬浮齿轮：有弹层时让开 ══════════════════════════════════════════
+   Android 的齿轮是原生 View，永远画在 WebView 之上；任务抽屉、更多菜单、导入
+   弹层打开时它会盖住底部按钮。这里把「是否有 .veil.on」经 JS 桥告诉壳。
+   桌面浏览器没有 Wb2ApiApp，整段直接跳过。 */
+(function syncNativeGear() {
+  const app = window.Wb2ApiApp;
+  if (!app || typeof app.setOverlay !== 'function') return;
+  const sync = () => { try { app.setOverlay(!!document.querySelector('.veil.on')); } catch (e) {} };
+  const mo = new MutationObserver(sync);
+  document.querySelectorAll('.veil').forEach(v =>
+    mo.observe(v, { attributes: true, attributeFilter: ['class'] }));
+  sync();
+})();

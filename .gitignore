@@ -15,10 +15,14 @@ data/
 
 # Config with secrets (use config.example.json)
 config.json
+# 导出给手机端导入的账号文件（含明文 token）
+cockpit-accounts.json
 
 # Build artifacts
 *.tmp
 __pycache__/
+# build_android.bat 的产物目录（APK 拷到这里）
+/dist/
 
 # Backups (contains auth tokens)
 backups/
@@ -34,6 +38,8 @@ docs/
 # 设计/计划文档（但 README.md 必须进版本库）
 *.md
 !README.md
+# 手机端工程说明要随仓库发布（上面的 *.md 会连带忽略它，这里单独放行）
+!mobile/README.md
 
 # Windows binaries
 /wb2api.exe

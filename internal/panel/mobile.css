@@ -16,6 +16,11 @@
    （抽屉遮罩）是本方案新增的 DOM，桌面端必须完全不出现。它不覆盖任何既有选择器，
    故不影响任何现存样式。 */
 .nav-btn, .nav-veil { display: none; }
+/* 账号卡册：桌面端不渲染，手机端在下方 @media 里打开 */
+.acc-chips { display: none; }
+/* 手机端专用：账号卡片列表 / 任务汇总与卡片（桌面端仍用表格） */
+.acc-cards, .task-cards, .tsum, .tfilters { display: none; }
+.tabbar { display: none; }
 @media (max-width: 760px) {
   /* ── 0. 明暗主题跟随面板设置（不再强制深色）────────────────────────
      手机端与桌面端共用同一套主题变量：顶栏主题按钮照常可用，选浅色就是浅色。
@@ -54,9 +59,9 @@
 
   /* ── 2. 顶栏：紧凑换行，只隐藏分隔符与副标题（主题按钮保留可用）────── */
   .topbar { flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px; }
-  .topbar h2 { font-size: 15px; }
+  .topbar h2 { font-size: 16px; }
   .topbar .sep, .topbar .meta { display: none; }
-  .topbar button { padding: 5px 9px; font-size: 12.5px; border-radius: 8px; }
+  .topbar button { padding: 5px 9px; font-size: 13px; border-radius: 8px; }
   .topbar button.icon { padding: 5px 8px; }
   .topbar #btnAdd { padding: 5px 12px; }
 
@@ -84,13 +89,13 @@
   .acc tbody tr:hover { background: var(--surface); }
   .acc td {
     display: flex; align-items: center; flex-wrap: wrap; min-width: 0; padding: 0; border: 0;
-    font-size: 11.5px; line-height: 1.3; overflow-wrap: anywhere;
+    font-size: 12px; line-height: 1.3; overflow-wrap: anywhere;
   }
   /* 字段名 = 表头该列纯文本（app.js 从 <th> 的文本节点抄进 data-l）。
      没有标签的单元格（行首色条、跨列提示、账号/模型名）保持干净。 */
   .acc td::before {
     content: attr(data-l); flex: none; color: var(--ink-3);
-    font-size: 9.5px; line-height: 1.2; margin-right: 3px;
+    font-size: 11px; line-height: 1.2; margin-right: 3px;
     white-space: nowrap; letter-spacing: .2px;
   }
   .acc td:not([data-l])::before, .acc td.who::before { content: none; }
@@ -104,26 +109,26 @@
      逐表映射都带 id 或额外类限定符，特异性更高，不受这条兜底影响。 */
   .acc tr > td { grid-column: span 4; }
   .acc .who { display: block; min-width: 0; max-width: none; }
-  .acc .who .nm { font-size: 13.5px; line-height: 1.25; }
-  .acc .who .id { font-size: 10px; line-height: 1.3; margin-top: 1px; }
+  .acc .who .nm { font-size: 14px; line-height: 1.25; }
+  .acc .who .id { font-size: 11px; line-height: 1.3; margin-top: 1px; }
   .acc .num { white-space: normal; }
-  .acc .tag { font-size: 10px; padding: 1px 7px; }
+  .acc .tag { font-size: 11px; padding: 1px 7px; }
   .acc .bar { flex: 1 1 auto; min-width: 18px; max-width: none; height: 2px; margin-top: 0; border-radius: 2px; }
   .acc .usage-line { flex-wrap: wrap; gap: 3px; white-space: normal; }
   .acc .usage-item { padding: 1px 5px; border-radius: 5px; }
-  .acc .usage-item b { font-size: 10px; }
-  .acc .usage-item em { font-size: 8.5px; }
+  .acc .usage-item b { font-size: 11px; }
+  .acc .usage-item em { font-size: 11px; }
   /* ④ 操作按钮：固定占满一行并平分宽度 → 全部按钮永远一行（主按钮蓝） */
   .acc .acts { grid-column: 1 / -1; display: flex; gap: 5px; }
-  .acc .acts button { flex: 1 1 0; min-width: 0; padding: 5px 2px; font-size: 11.5px; white-space: nowrap; border-radius: 8px; }
+  .acc .acts button { flex: 1 1 0; min-width: 0; padding: 5px 2px; font-size: 12px; white-space: nowrap; border-radius: 8px; }
 
   /* 账号卡：① 标题/ID + 状态 ② 积分细条+积分+成功失败+在途 ③ 用量标签+最近成功 ④ 按钮 */
   #accBody tr > .who { grid-column: 1 / 9; }
   #accBody tr > td:nth-child(3) { grid-column: 9 / 13; flex-direction: column; align-items: flex-end; gap: 1px; }
   #accBody tr > td:nth-child(3)::before { content: none; }
-  #accBody tr > td:nth-child(3) .hint { font-size: 9.5px; margin-top: 0; text-align: right; }
+  #accBody tr > td:nth-child(3) .hint { font-size: 11px; margin-top: 0; text-align: right; }
   #accBody tr > .cred { grid-column: 1 / 7; gap: 5px; }
-  #accBody tr > .cred .n { font-size: 10.5px; }
+  #accBody tr > .cred .n { font-size: 11px; }
   #accBody tr > td:nth-child(5) { grid-column: 7 / 10; }
   #accBody tr > td:nth-child(6) { grid-column: 10 / 13; }
   #accBody tr > td:nth-child(8) { grid-column: 1 / 4; order: 1; }
@@ -175,6 +180,10 @@
      内部纵向滚动」：上游 .req-wrap 就是这个语义，overflow 被覆盖后卡片会溢出去压住
      下面的运行日志（实测卡片 bottom 1897 vs box bottom 904）。 */
   .req-wrap { max-height: 70vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+  /* 请求统计头是「已完成 0 · 成功 0.0% · …」的长句。桌面上单行 + 省略，
+     手机上必须允许换行，否则被截成一句看不出所以然的省略号。 */
+  #view-logs .box > header { flex-wrap: wrap; }
+  #reqSummary, #reqNote { flex: 1 1 100%; min-width: 0; white-space: normal; text-align: left; }
 
   /* 上游新增的筛选栏 / 时间范围 / 维度切换 / KPI 卡：同密度口径收紧 */
   .fbar { padding: 8px 10px; gap: 6px; }
@@ -198,7 +207,7 @@
   .uschart-hd .note { flex: 1 1 100%; order: 3; font-size: 11px; line-height: 1.35; }
   .uschart-body { padding: 6px 8px 2px; }
   .uschart-body .tk, .uschart-body .tk-avg { font-size: 13px; }
-  .uschart-body .tk-peak { font-size: 13.5px; }
+  .uschart-body .tk-peak { font-size: 14px; }
   .uschart-body .usbar-p { fill: var(--accent); }
   .uschart-body .usbar-c { fill: var(--ok); }
 
@@ -222,7 +231,21 @@
   .dlg footer { padding: 12px 14px; flex-wrap: wrap; }
   .dlg .tabs { margin: 8px 0 0; }
   .tab-panel + .tab-panel { margin: 0 -14px; padding: 12px 14px 0; }
-  .realm-row { flex-wrap: wrap; gap: 8px; }
+  /* 添加账号 → 版本选择：两个等宽选项卡；原生单选缩到与正文同高，
+     否则小屏上圆点显得很大、两个标签被挤成一行碎字。 */
+  #addVeil .realm-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch;
+  }
+  #addVeil .realm-row > .hint { grid-column: 1 / -1; }
+  #addVeil .realm-opt {
+    justify-content: center; min-width: 0; padding: 9px 8px;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface-2); font-size: 13px; gap: 6px;
+  }
+  #addVeil .realm-opt:has(input:checked) {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  #addVeil .realm-opt input { width: 15px; height: 15px; margin: 0; flex: none; }
   .savebar { padding: 11px 12px; flex-wrap: wrap; }
   .vc .ft { flex-wrap: wrap; gap: 8px; }
   .vc .ft code { font-size: 13px; letter-spacing: .6px; padding: 6px 9px; }
@@ -232,22 +255,22 @@
   .tst { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
   /* 弹层内部同样收紧（与卡片台同一密度口径） */
   .dlg header { padding: 11px 12px 9px; }
-  .dlg header h3 { font-size: 13.5px; }
+  .dlg header h3 { font-size: 14px; }
   .dlg .body { padding: 11px; }
   .dlg footer { padding: 9px 11px; gap: 7px; }
-  .dlg footer button { padding: 6px 10px; font-size: 12.5px; border-radius: 8px; }
+  .dlg footer button { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
   .vc { margin-bottom: 8px; border-radius: 10px; }
   .vc .hd { padding: 9px 11px 3px; }
   .vc .meta { padding: 1px 11px 8px; }
   .vc .ft { padding: 8px 11px; }
   /* 配置页：字段行更矮，标签/提示更小 */
   label.fld { margin-bottom: 9px; }
-  label.fld > .lb { font-size: 11.5px; margin-bottom: 3px; }
-  label.fld > .hint, .hint { font-size: 10px; margin-top: 2px; }
-  input, select { padding: 6px 9px; font-size: 12.5px; border-radius: 8px; }
-  button { padding: 6px 10px; font-size: 12.5px; border-radius: 8px; }
+  label.fld > .lb { font-size: 12px; margin-bottom: 3px; }
+  label.fld > .hint, .hint { font-size: 11px; margin-top: 2px; }
+  input, select { padding: 6px 9px; font-size: 13px; border-radius: 8px; }
+  button { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
   .switch { padding: 6px 0; }
-  .switch .lb { font-size: 12.5px; }
+  .switch .lb { font-size: 13px; }
   .hr { margin: 2px 0 11px; }
   legend { font-size: 11px; padding-bottom: 7px; }
 
@@ -255,36 +278,44 @@
   .view { padding: 10px 10px 40px; }
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: 12px; margin-bottom: 10px; }
   .stat { padding: 7px 9px; min-width: 0; }
-  .stat .v { font-size: 15px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
-  .stat .k { font-size: 9.5px; margin-top: 1px; }
+  .stat .v { font-size: 16px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
+  .stat .k { font-size: 11px; margin-top: 1px; }
   .box { border-radius: 12px; margin-bottom: 12px; }
   .box > header { flex-wrap: wrap; gap: 6px 8px; padding: 9px 11px; }
-  .box > header h3 { font-size: 12.5px; white-space: normal; }
+  .box > header h3 { font-size: 13px; white-space: normal; }
   /* 上游 .box > header .note 也是 nowrap（L200）：v1.12.0 起 packages 页每个账号盒头部的
      余额口径文字变长，窄屏直接撑破整页（实测 563px）。用量页那条 id 限定的「单行截断」
      规则特异性更高，仍按上游保持省略号，不受这里影响。 */
   .box > header .note { white-space: normal; }
   .box .pad { padding: 11px; }
   .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); }
-  /* 任务中心：每项也是一张卡（标题+状态 / 进度+编码 / 信息） */
+  /* 任务中心：与「任务」抽屉同形的卡片（标题/状态 → 进度 → 说明）。
+     任务码是内部标识，手机上让位给标题；行容器原来是 5 列宽表，这里改成两列卡片。 */
+  /* 汇总 / 筛选 / 卡片列表都不在带内边距的 .dlg .body 里，补上与盒头一致
+     的左右留白，否则卡片会顶死账号池盒子的边框。 */
+  #qcSum, #qcFilters, #qcList { margin-left: 11px; margin-right: 11px; }
+  /* 汇总卡不要贴着盒头：抽屉里它下面还有一层 body 内边距，页面里没有。 */
+  #qcSum { margin-top: 12px; }
   .qgroup { padding: 0 0 12px; }
-  .qgroup header { padding: 6px 2px 6px; }
-  .qgroup header .nm { font-size: 12.5px; }
+  .qgroup header { padding: 8px 2px 7px; }
+  .qgroup header .nm { font-size: 13px; }
   .qrow {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px;
-    padding: 8px 10px; margin-bottom: 6px; background: var(--surface);
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px; align-items: start;
+    padding: 11px 12px; margin-bottom: 8px; background: var(--surface);
     border: 1px solid var(--line); border-radius: 12px;
   }
-  .qrow .name { flex: 1 1 100%; order: -1; font-size: 12.5px; }
+  .qrow .code { display: none; }
+  .qrow .name { grid-column: 1; grid-row: 1; flex-wrap: wrap; font-size: 13.5px; font-weight: 560; }
   .qrow .name .t { white-space: normal; }
-  .qrow .code { flex: 1 1 auto; white-space: normal; overflow-wrap: anywhere; }
-  .qrow .prog { flex: none; text-align: left; font-size: 11.5px; }
-  .qrow .st { flex: none; font-size: 11.5px; }
-  .qrow .msg { flex: 1 1 100%; font-size: 10.5px; white-space: normal; overflow-wrap: anywhere; }
+  .qrow .st { grid-column: 2; grid-row: 1; justify-content: flex-end; font-size: 12px; color: var(--ink-3); }
+  .qrow .prog { grid-column: 1; grid-row: 2; text-align: left; font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+  .qrow .msg { grid-column: 1 / 3; grid-row: 3; font-size: 11.5px; color: var(--ink-3); white-space: normal; overflow-wrap: anywhere; }
+  .qrow .msg:empty { display: none; }
   #logBox { padding: 10px; max-height: 60vh; font-size: 11px; }
   .pk-card { padding: 9px 11px; border-radius: 12px; }
-  .pk-card .big { font-size: 19px; }
-  .pk-card .sub { font-size: 10.5px; }
+  .pk-card .big { font-size: 20px; }
+  .pk-card .sub { font-size: 11px; }
   .qprog { padding: 8px 11px 0; }
   .pk-expiry-hdr, .pk-expiry-row { grid-template-columns: 52px minmax(60px, 1fr) 62px; gap: 6px; }
   .pk-expiry-chart { padding-right: 4px; }
@@ -315,3 +346,305 @@
   /* 标签类（限流冷却 · 1时02分 / 模型档位）窄列里换行，而不是 nowrap 撑着容器溢出 */
   .tag { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 }
+
+/* ══ 视觉层（≤760px）═════════════════════════════════════════════════════
+   与上面各节的分工：上面的规则解决「布局与信息密度」（哪些列并到哪一行），
+   这一节只解决「观感」（圆角、间距节奏、字号层级、吸顶、安全区）。
+   全部在 @media 内 → >760px 的桌面端与改动前逐像素一致。
+
+   口径：沿用面板同一套令牌 —— 冷石墨底、单一靛蓝强调，状态色只出现在数值上。
+   手机上不画阴影：小屏上阴影糊成脏边，改用 1px 描边 + 圆角区分层级。
+   所有数字（积分、计数、时长）等宽 + tabular-nums，像一本台账。 */
+@media (max-width: 760px) {
+  /* ── 8.1 顶栏：吸顶 + 轻磨砂；滚动时标题与「添加账号」始终在──
+     基础色先给不透明背景（老 WebView 没有 backdrop-filter / color-mix 也不会花），
+     支持的浏览器再换成半透明 + 模糊。 */
+  .topbar {
+    background: var(--bg);
+    border-bottom: 1px solid var(--line-soft);
+    padding: 9px 12px;
+  }
+  @supports (background: color-mix(in srgb, white 50%, transparent)) {
+    .topbar {
+      background: color-mix(in srgb, var(--bg) 86%, transparent);
+      -webkit-backdrop-filter: saturate(150%) blur(12px);
+      backdrop-filter: saturate(150%) blur(12px);
+    }
+  }
+  .topbar h2 { font-size: 16px; font-weight: 620; letter-spacing: -.01em; }
+  .topbar button { min-height: 32px; }
+  .topbar button.icon { min-width: 32px; justify-content: center; }
+
+  /* ── 8.2 统计条：两列 + 网格线；长数字一律不换行 ─────────────────
+     三列时「81268 / 109401」这类长串会被折断成两行，同一行的数值高度对不齐，
+     看起来既不像居中也不像左对齐。两列 + 等宽数字 + nowrap 一次解决；
+     网格线改用 1px gap 画，隐藏某几格（任务模式）时不会留下半截边框。 */
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px; background: var(--line); border-radius: 13px;
+  }
+  .stat {
+    border: 0; background: var(--surface);
+    padding: 12px 13px; min-width: 0;
+  }
+  .stat .v {
+    font-size: 19px; line-height: 1.2; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .stat .k { font-size: 11px; margin-top: 3px; color: var(--ink-3); }
+  /* 完整网关下是 7 格（奇数）：最后一格独占一行会露出 1px 网格底色，
+     让它跨两列补满；任务模式可见 4 格（偶数）不受影响。 */
+  .stats .stat:last-child:nth-child(odd) { grid-column: span 2; }
+  /* 「积分剩余 / 总额」是最长的一格：单独降一档字号，两列宽度下能完整显示 */
+  #statCredits .v { font-size: 15.5px; letter-spacing: -.01em; }
+
+  /* ── 8.3 卡片：统一 14px 圆角与 12px 内边距节奏 ────────────────── */
+  .box, .pk-card, .kpi, .acc tr, .qrow { border-radius: 14px; }
+  .box { box-shadow: none; }
+  .box > header { padding: 10px 12px; }
+  .box .pad { padding: 12px; }
+  .acc tr { padding: 10px 12px; margin-bottom: 9px; }
+  .acc td { font-size: 12px; }
+  .acc td::before { font-size: 11px; letter-spacing: .02em; }
+  .acc .who .nm { font-size: 14px; font-weight: 560; }
+  .acc .who .id { font-size: 11px; color: var(--ink-3); }
+  /* 行内操作按钮：拇指可点（≥34px），不要再用 26px 的小方块 */
+  .acc .acts button, .qrow button { min-height: 34px; border-radius: 9px; font-size: 12px; }
+
+  /* ── 8.4 通用控件：高度、圆角、聚焦态 ─────────────────────────── */
+  button { min-height: 32px; border-radius: 9px; }
+  button.primary { font-weight: 600; }
+  input, select { min-height: 36px; border-radius: 9px; }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  /* ── 8.5 抽屉：右侧圆角 + 安全区；选中项是药丸，不是整行蓝条 ────── */
+  .nav {
+    width: 264px;
+    padding-top: env(safe-area-inset-top, 0px);
+    border-radius: 0 16px 16px 0;
+  }
+  .nav .brand { padding: 18px 16px 14px; }
+  .nav a { padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+  .nav a.on { font-weight: 600; }
+
+  /* ── 8.6 弹层 / toast：底部安全区，圆角加大 ───────────────────── */
+  .dlg { border-radius: 16px; }
+  .dlg header { padding: 13px 14px 10px; }
+  .dlg footer { padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  #toasts { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .tst { border-radius: 10px; }
+
+  /* ── 8.8 导入账号：文件选择框与结果提示 ─────────────────────────── */
+  input[type=file] {
+    padding: 11px 12px;
+    border: 1px dashed var(--line);
+    background: var(--surface-2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--ink-2);
+    width: 100%;
+  }
+  #importPicked { color: var(--ink-2); }
+  #importPicked::before { content: "✓ "; color: var(--ok); }
+
+
+  /* 任务模式隐藏「成功/失败、在途、用量、最近成功」四列后，积分条独占一整行，
+     否则会留下半行空白（列号映射见上方 #accBody 规则，display:none 不影响 nth-child）。 */
+  body.tasks #accBody tr > .cred { grid-column: 1 / -1; }
+
+  /* ── 8.7 账号卡册：一排账号页签 + 单账号详情 ─────────────────────
+     手机端的活是"看某个号的积分、给它签到/做任务"，宽表改成卡片后仍要横向扫。
+     页签把"选哪个号"变成一次点击；选中后只留一张放大的卡。 */
+  .acc-chips {
+    display: flex; gap: 8px; overflow-x: auto; padding: 0 0 10px;
+    margin: 0; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .acc-chips::-webkit-scrollbar { display: none; }
+  .acc-chips:empty { display: none; }
+  .chip {
+    flex: none; display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 13px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line);
+    color: var(--ink-2); font-size: 13px; line-height: 1;
+    max-width: 66vw;
+  }
+  .chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .pt {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .chip.on {
+    background: var(--accent-soft); border-color: transparent;
+    color: var(--accent); font-weight: 600;
+  }
+  .chip.on .pt { color: var(--accent); opacity: .85; }
+
+  /* 单账号详情：字更大、按钮更高，一屏看完这个号的状态与操作 */
+  #accBody.single tr { padding: 14px; }
+  #accBody.single .who .nm { font-size: 16px; }
+  #accBody.single .who .id { font-size: 11px; }
+  #accBody.single .cred { grid-column: 1 / -1; }
+  #accBody.single .cred .n { font-size: 15px; }
+  #accBody.single .acts button { min-height: 40px; font-size: 13px; }
+
+  /* 任务模式：状态筛选（全部 / 正在使用 / 已禁用）由卡册承担，下拉隐藏 */
+  body.tasks .sel-note:has(#accFilter) { display: none; }
+
+  /* ── 8.8 积分历史（独立页）：5 列 → 时间+账号 / 变动+余额 / 说明 ──
+     数值右对齐（与桌面表格的 .num 同口径），文本左对齐；说明整行。 */
+  #creditBody tr > td:nth-child(1) { grid-column: 1 / 8; }
+  #creditBody tr > td:nth-child(2) { grid-column: 8 / 13; justify-content: flex-end; }
+  #creditBody tr > td:nth-child(3) { grid-column: 1 / 7; }
+  #creditBody tr > td:nth-child(4) { grid-column: 7 / 13; justify-content: flex-end; }
+  #creditBody tr > td:nth-child(5) { grid-column: 1 / 13; }
+  #creditBody tr > td:nth-child(1)::before,
+  #creditBody tr > td:nth-child(2)::before { content: none; }
+  /* 账号汇总：账号名整行，四个指标等分 */
+  #creditSumBody tr > td:nth-child(1) { grid-column: 1 / 13; }
+  #creditSumBody tr > td:nth-child(n+2) { grid-column: span 3; }
+
+  /* ── 8.9 账号卡片（替代手机上的宽表）────────────────────────────
+     头像 + 名称/徽标 + 积分/最近成功 + 操作按钮；表格在手机上隐藏。 */
+  #accTableWrap { display: none; }
+  .acc-cards { display: flex; flex-direction: column; gap: 10px; }
+  .acard {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px;
+  }
+  .acard-top { display: flex; align-items: flex-start; gap: 11px; }
+  .ava {
+    width: 42px; height: 42px; border-radius: 13px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600;
+  }
+  .ava.ok { background: var(--ok-soft); color: var(--ok); }
+  .ava.warn { background: var(--warn-soft); color: var(--warn); }
+  .ava.bad { background: var(--bad-soft); color: var(--bad); }
+  .acard-main { flex: 1; min-width: 0; }
+  .acard-name {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+    font-size: 14px; font-weight: 600; line-height: 1.35;
+  }
+  .acard-metrics {
+    margin-top: 4px; display: flex; flex-wrap: wrap; gap: 3px 10px;
+    font-size: 12px; color: var(--ink-2);
+  }
+  .acard-metrics b {
+    font-family: var(--mono); font-weight: 600; color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .acard-metrics .muted { color: var(--ink-3); }
+  .acard-metrics .today, .acard-metrics .today b { color: var(--ok); }
+  .acard-bar {
+    height: 3px; border-radius: 2px; background: var(--surface-2);
+    overflow: hidden; margin: 10px 0;
+  }
+  .acard-bar i { display: block; height: 100%; background: var(--accent); }
+  .acard-acts { display: flex; gap: 6px; }
+  .acard-acts button {
+    flex: 1 1 0; min-width: 0; min-height: 34px; font-size: 12.5px;
+    padding: 4px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ── 8.10 任务清单（手机端底部抽屉形态）───────────────────────────
+     汇总三格 → 筛选页签 → 任务卡片；表格在手机上隐藏。 */
+  #taskVeil.on { align-items: flex-end; padding: 0; }
+  #taskVeil .dlg {
+    width: 100%; max-width: 100%; max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* 任务抽屉底部四个按钮：主操作单独一行，其余三个等分一行。
+     默认 flex-wrap 在窄屏上会掉成 3+1，看起来像按钮散了架。 */
+  #taskVeil .dlg footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #taskVeil .dlg footer .grow { display: none; }
+  #taskVeil .dlg footer #btnTaskAutoAll { grid-column: 1 / -1; grid-row: 1; }
+  #taskVeil .dlg footer button { width: 100%; }
+  #taskTableWrap { display: none; }
+  .tsum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+  .tsum-item { background: var(--surface-2); border-radius: 12px; padding: 10px 6px; text-align: center; }
+  .tsum-item b {
+    display: block; font-family: var(--mono); font-size: 18px;
+    line-height: 1.25; font-variant-numeric: tabular-nums;
+  }
+  .tsum-item span { font-size: 11px; color: var(--ink-3); }
+  .tfilters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tfilters .chip { padding: 6px 11px; font-size: 12px; }
+  .tfilters .grow { flex: 1; }
+  .task-cards { display: flex; flex-direction: column; gap: 8px; }
+  .tcard {
+    display: grid; grid-template-columns: 20px minmax(0, 1fr) auto;
+    gap: 4px 10px; align-items: start;
+    padding: 11px 12px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px;
+  }
+  .tcard .ico { grid-column: 1; grid-row: 1; font-size: 16px; line-height: 1.3; color: var(--ink-3); }
+  .tcard .ico.ok { color: var(--ok); }
+  .tcard .tmain { grid-column: 2; grid-row: 1; min-width: 0; }
+  .tcard .tmain .nm { font-size: 13.5px; font-weight: 560; line-height: 1.35; }
+  .tcard .tmain .desc { margin-top: 2px; font-size: 11.5px; line-height: 1.45; color: var(--ink-3); }
+  .tcard .tmain .meta { margin-top: 3px; font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+  .tcard .tright {
+    grid-column: 3; grid-row: 1;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  }
+  .tcard .tright .pts { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .tcard .tact { grid-column: 2 / 4; grid-row: 2; display: flex; justify-content: flex-end; gap: 6px; }
+
+  /* ── 8.11 卡片三按钮 / 更多菜单 / 底部标签栏 ───────────────────
+     只借参考图的形态：卡片上只留「签到 · 余额 · 更多」三个大按钮，
+     暂停选号 / 禁用 / 移除 这些低频操作收进「更多」。 */
+  .acard-acts { display: flex; gap: 8px; }
+  .acard-acts button {
+    flex: 1 1 0; min-width: 0; min-height: 38px; font-size: 13px;
+    border-radius: 10px; white-space: nowrap;
+  }
+  .acard-acts button.act-main {
+    background: var(--accent); border-color: var(--accent);
+    color: #fff; font-weight: 600;
+  }
+  #accMoreBody { display: flex; flex-direction: column; gap: 8px; }
+  .amore-row {
+    width: 100%; text-align: left; padding: 12px 14px; min-height: 44px;
+    border-radius: 10px; background: var(--surface-2);
+    border: 1px solid var(--line); font-size: 14px;
+  }
+  .amore-row.danger { color: var(--bad); }
+  .dlg.amore { border-radius: 16px; }
+
+  /* 底部标签栏：固定在最下方，内容底部留出让位空间 */
+  .tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: var(--surface); border-top: 1px solid var(--line-soft);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .tabbar button {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 0 7px; background: none; border: 0; border-radius: 0;
+    color: var(--ink-3); font-size: 10.5px; min-height: 0;
+  }
+  .tabbar button svg { width: 20px; height: 20px; }
+  .tabbar button.on { color: var(--accent); }
+  .view { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  /* toast 抬到标签栏之上，避免被遮住 */
+  #toasts { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ── 8.7 主区：底部留白避开手势条 ─────────────────────────────── */
+  .view { padding: 12px 12px calc(36px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ══ 字号刻度（≤760px）══════════════════════════════════════════════════
+   手机端只有这 6 档，不再出现第 7 种数值（此前的 8.5 / 9.5 / 10 / 10.5 … 已归并）：
+
+     20  观测值（统计条数字、积分大数）· mono + tabular-nums
+     16  页面标题（顶栏 h2）
+     14  卡片标题 / 主数值 / 品牌名
+     13  正文（表格单元格、按钮、输入框、任务行）
+     12  次要信息（字段名提示、hint、进度、配额标签）
+     11  微标签（表格字段名、状态 chip）—— 下限，再小手机上不可读
+
+   桌面端（>760px）不受这条约束，保持原样。 */

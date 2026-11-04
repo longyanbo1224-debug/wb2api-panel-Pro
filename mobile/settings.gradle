@@ -1,0 +1,28 @@
+// 手机端 Android 工程（App 壳 + 内嵌 Go「任务模式」引擎）。
+//
+// 该工程只做一件事：把 cmd/server 的 -mode=tasks 二进制打包进 APK，用 WebView 打开
+// 本机 127.0.0.1 的面板。不含任何反代逻辑，也不依赖电脑。
+//
+// 仓库顺序：阿里云镜像优先（国内直连 dl.google.com 经常超时到看起来像卡死），
+// 官方源保留在后面兜底。镜像缺包时会自动回落到官方源。
+pluginManagement {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'wb2api-tasks'
+include ':app'

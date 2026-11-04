@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      只用 framework 主题（不引入 AppCompat）：NoActionBar 是因为顶部工具栏由
+      MainActivity 自己画，或者直接让面板自己的顶栏接管。
+    -->
+    <style name="AppTheme" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

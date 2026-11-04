@@ -41,6 +41,9 @@ type Config struct {
 	APIKey    string               // 空 = 不鉴权（与主服务同语义）；与 Live 同时给出时 Live 优先
 	RedisMode string               // "upstash" / "noop"，仅观测透出
 	Version   string               // 面板版本号（展示用）
+	// Mode 运行模式："full"（完整网关，缺省）或 "tasks"（任务模式：不注册反代路由，
+	// 只做签到/成长任务/活跃/旅行/夜猫子/保活）。面板据此隐藏反代专属页面。
+	Mode string
 
 	// Live 运行期可变配置（在线改配置立即生效）。
 	Live *livecfg.Holder
@@ -83,6 +86,11 @@ type Panel struct {
 	// poll 成功或超时（loginTTL）后剔除；面板常驻进程，容量天然有界。
 	loginMu sync.Mutex
 	logins  map[string]loginSession
+
+	// imports 导入进度（客户端自带 id → 导入过程中轮询同 id 看 7/15）。
+	// 与 logins 同款：按 TTL 回收，容量天然有界。
+	importMu sync.Mutex
+	imports  map[string]*importProgress
 
 	// taskMu/taskLocks 一键完成任务的 per-account 互斥：同一账号的任务动作
 	// （单任务 / 全量）同时只允许一条在跑。重复点击直接返回 409"仍在执行"，
@@ -165,6 +173,10 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/api/login/poll", p.withAuth(p.loginPoll))
 	p.mux.HandleFunc("GET /panel/api/login/regions", p.withAuth(p.loginRegions))
 	p.mux.HandleFunc("POST /panel/api/import/cockpit", p.withAuth(p.importCockpit))
+	p.mux.HandleFunc("GET /panel/api/import/status", p.withAuth(p.importStatus))
+	// 账号交换：导出（含备注）与备注写入。备注落在 auth 文件里，随账号迁移。
+	p.mux.HandleFunc("GET /panel/api/export/cockpit", p.withAuth(p.exportCockpit))
+	p.mux.HandleFunc("POST /panel/api/accounts/{uid}/note", p.withAuth(p.accountNote))
 	p.mux.HandleFunc("POST /panel/api/accounts/{uid}/revive", p.withAuth(p.accountRevive))
 	p.mux.HandleFunc("POST /panel/api/accounts/{uid}/disable", p.withAuth(p.accountDisable))
 	p.mux.HandleFunc("POST /panel/api/accounts/{uid}/pause", p.withAuth(p.accountPause))
@@ -226,6 +238,14 @@ func (p *Panel) apiKey() string {
 	return p.cfg.APIKey
 }
 
+// runMode 运行模式，缺省 "full"（未注入 Mode 的裸用/测试路径）。
+func (p *Panel) runMode() string {
+	if p.cfg.Mode == "" {
+		return "full"
+	}
+	return p.cfg.Mode
+}
+
 // expiringSoonWindow 返回调度器当前生效的快过期路由窗口；测试面板无调度器时返回 0。
 func (p *Panel) expiringSoonWindow() time.Duration {
 	if p.cfg.Scheduler == nil {
@@ -260,8 +280,17 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 	if p.cfg.StickyCount != nil {
 		sticky = p.cfg.StickyCount()
 	}
+	accounts := p.cfg.Pool.List()
+	// 今日新增积分来自积分账本（账号池卡片上的「今日 +N」）。账本只存 uid，
+	// 这里按池快照回填，避免前端为这一列再拉整本流水。
+	if gains := p.todayCreditGain(); len(gains) > 0 {
+		for i := range accounts {
+			accounts[i].CreditsTodayGain = gains[accounts[i].UID]
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":         p.cfg.Version,
+		"mode":            p.runMode(),
 		"uptime_sec":      int(time.Since(p.started).Seconds()),
 		"auth_required":   p.apiKey() != "",
 		"redis_mode":      p.cfg.RedisMode,
@@ -272,7 +301,7 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 		"disabled":        disabled,
 		"paused":          paused,
 		"in_flight_full":  inFlightFull,
-		"accounts":        p.cfg.Pool.List(),
+		"accounts":        accounts,
 		// model_locks 模型级限流全清单（哪些模型不能用、锁了几个号、还要锁多久）：
 		// 与 accounts 的账号池视图互补，前端「模型锁池」表直接渲染。无锁时为 null。
 		"model_locks": p.cfg.Pool.ModelLockView(),
@@ -281,6 +310,22 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 		"balance_refresh_sec":  p.balanceRefreshSec(),
 		"balance_refreshed_at": p.balanceRefreshedAt(),
 	})
+}
+
+// todayCreditGain 各账号今日（本地自然日）新增积分，只统计正向变动。
+// 复用 summarizeCredits 的日界口径，避免“今天”在两个接口里定义漂移。
+func (p *Panel) todayCreditGain() map[string]int64 {
+	if p.cfg.CreditHistory == nil {
+		return nil
+	}
+	sum := summarizeCredits(p.cfg.CreditHistory.Read(0), nil, "", time.Time{}, nil)
+	out := make(map[string]int64, len(sum.Accounts))
+	for _, a := range sum.Accounts {
+		if a.TodayGain > 0 {
+			out[a.UID] = a.TodayGain
+		}
+	}
+	return out
 }
 
 // balanceRefreshSec 余额后台刷新间隔（秒）；无调度器/未开启时为 0。

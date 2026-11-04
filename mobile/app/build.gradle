@@ -1,0 +1,81 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wb2api.tasks'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.wb2api.tasks'
+        // minSdk 26：Android 8.0+。选 26 而不是更低，是因为自适应图标、
+        // NotificationChannel、nativeLibraryDir 行为在这个版本之后才完全稳定。
+        minSdk 26
+        // targetSdk 34（不是 35）：Android 15 对 dataSync 类型前台服务有「24 小时内
+        // 累计 6 小时」上限，只对 targetSdk>=35 生效。本工程要让引擎整天常驻做定时
+        // 任务，故停在 34 以规避该限制。
+        targetSdk 34
+        versionCode 1
+        // 版本号的唯一来源是 cmd/server/main.go 的 appVersion（不带 -panel 后缀）。
+        // build-android.ps1 会读出来并通过 -PappVersion=... 注入，所以桌面端与手机端
+        // 永远不会漂移；直接在 Android Studio 里构建时用下面的兜底值，发版时同步改它。
+        versionName (findProperty('appVersion') ?: '1.16.0').toString()
+        // 只打 arm64：现代手机全支持，包体减半（Go 二进制每个 ABI 约 8-10MB）。
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    buildTypes {
+        debug {
+            // 调试包同样用 debug 签名，直接可装。
+        }
+        release {
+            minifyEnabled false
+            // 个人自用：release 也用 debug 签名（无需自建 keystore，能直接装）。
+            // 若要分发给别人，请自建 signingConfig 并在下面替换。
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        jniLibs {
+            // 这两条是本方案的关键，缺一不可：
+            //  1) keepDebugSymbols：内嵌的是 Go 编译出的可执行文件（改名成 .so 只为
+            //     让它进 nativeLibraryDir）。AGP 默认会调用 NDK 的 strip 去处理 .so，
+            //     一来会把 Go 二进制改坏，二来没装 NDK 时构建直接报错——加上这条即跳过。
+            //  2) useLegacyPackaging=true：不压缩地打进 APK，安装时解压成
+            //     nativeLibraryDir 下的真实文件。Android 10+ 的 W^X 限制禁止从应用
+            //     可写目录 exec，只有 nativeLibraryDir 可执行（配合清单里的
+            //     android:extractNativeLibs="true"）。
+            keepDebugSymbols.add('**/*.so')
+            useLegacyPackaging = true
+        }
+    }
+
+    // The engine is cross-compiled into jniLibs by build_android.bat / build-apk.sh
+    // (it is not committed). Building straight from Android Studio without running
+    // the script would produce an APK with no engine; fail early with a clear hint.
+    // NOTE: keep this message ASCII - Gradle decodes build scripts with the JVM
+    // default charset, and non-ASCII text can break parsing on some systems.
+    tasks.matching { it.name == 'preBuild' }.configureEach {
+        doFirst {
+            def so = file('src/main/jniLibs/arm64-v8a/libwb2api.so')
+            if (!so.exists()) {
+                throw new GradleException(
+                    'Missing embedded engine (libwb2api.so). Run build_android.bat ' +
+                    '(or ./mobile/build-apk.sh) from the repo root first - it ' +
+                    'cross-compiles the engine into app/src/main/jniLibs/.')
+            }
+        }
+    }
+
+    lint {
+        // 缺图标密度/未翻译字符串这类告警不阻塞构建。
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

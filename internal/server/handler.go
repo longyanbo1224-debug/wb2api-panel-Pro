@@ -78,6 +78,15 @@ type Config struct {
 	// 来自 logging.request_client_info（缺省 true）；关闭时 reqlog 事件的来源字段
 	// 保持为空，归档与面板都不出现来源信息。
 	RecordClientInfo bool
+
+	// TaskOnly 任务模式（手机端 App / 单机自用）：为 true 时**不注册任何反代路由**
+	// （/v1/chat/completions、/v1/search/messages、/v1/models、/status），只保留
+	// /healthz 与管理面板 /panel/。
+	//
+	// 用途：本项目在手机上作为「签到 / 做任务 / 领积分」的独立小工具运行时，
+	// 既不该对外提供 OpenAI 兼容接口，也不该让本机任意进程用空 api_key 打穿账号池。
+	// 缺省 false = 完整网关（桌面/服务器形态零回归）。
+	TaskOnly bool
 }
 
 // loadLive 返回当前运行期快照；Live 为 nil 时用静态字段合成。
@@ -140,12 +149,17 @@ func NewHandler(cfg Config) *Handler {
 		cfg.PromptMode = "custom" // 缺省 custom：网关自有提示词
 	}
 	h := &Handler{cfg: cfg, mux: http.NewServeMux()}
-	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
-	// 联网搜索（Anthropic Messages 兼容形态，见 messages.go）。路径刻意不占用
-	// /v1/messages——那是 Anthropic 模型对话的标准路径，留给未来的 chat 转发。
-	h.mux.HandleFunc("POST /v1/search/messages", h.withAuth(h.messages))
-	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
-	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
+	// TaskOnly（手机端/单机任务模式）不注册任何反代端点：请求落到 ServeMux 的
+	// 默认 404，且**不进入**鉴权分支——不存在的路径没有可泄露的信息。
+	// /healthz 保留（App 靠它判断引擎是否就绪），/panel/ 保留（任务管理界面）。
+	if !cfg.TaskOnly {
+		h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
+		// 联网搜索（Anthropic Messages 兼容形态，见 messages.go）。路径刻意不占用
+		// /v1/messages——那是 Anthropic 模型对话的标准路径，留给未来的 chat 转发。
+		h.mux.HandleFunc("POST /v1/search/messages", h.withAuth(h.messages))
+		h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
+		h.mux.HandleFunc("GET /status", h.withAuth(h.status))
+	}
 	h.mux.HandleFunc("GET /healthz", h.healthz)
 	if cfg.Panel != nil {
 		h.mux.Handle("/panel/", cfg.Panel) // /panel → /panel/ 由 ServeMux 自动重定向

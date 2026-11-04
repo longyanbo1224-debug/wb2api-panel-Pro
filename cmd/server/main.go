@@ -14,8 +14,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+	// 内嵌 IANA 时区数据库（约 450KB）：Android（App 内 / Termux）与精简容器都
+	// 没有 /etc/localtime 与 /usr/share/zoneinfo，Go 的 time.Local 会退回 UTC，
+	// 于是「9 点签到 / 23 点夜猫子」这类按本地钟点触发的排程会整体偏移。
+	// 内嵌后 TZ=Asia/Shanghai 立即生效，不依赖系统文件。
+	_ "time/tzdata"
 
 	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
 	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/credithist"
@@ -32,7 +38,7 @@ import (
 )
 
 // appVersion 网关版本（fork 版：面板 + 任务体系），透出到 /panel/api/overview。
-const appVersion = "1.15.1-panel"
+const appVersion = "1.16.0-panel"
 
 // usagePathFor 由 state 文件路径推出用量文件路径：同目录、文件名 usage.json。
 // 这样 config 里改 state_file 时用量数据跟着走，不需要额外配置项。
@@ -50,7 +56,16 @@ func stateSibling(stateFile, name string) string {
 
 func main() {
 	cfgPath := flag.String("config", "config.json", "配置文件路径（默认当前目录 config.json；不存在时自动生成推荐配置）")
+	// 运行模式：手机端 App / 单机自用只需要「签到 + 做任务 + 领积分」，
+	// 不需要也不应该对外提供 OpenAI 兼容反代。
+	mode := flag.String("mode", "full", "运行模式：full=完整网关（默认）；tasks=任务模式（不注册 /v1 反代路由，只监听回环地址）")
 	flag.Parse()
+
+	taskOnly := strings.EqualFold(*mode, "tasks")
+	runMode := "full"
+	if taskOnly {
+		runMode = "tasks"
+	}
 
 	cfg, err := Load(*cfgPath)
 	if err != nil {
@@ -70,6 +85,22 @@ func main() {
 		}
 		if err != nil {
 			log.Fatalf("load config: %v", err)
+		}
+	}
+
+	// 任务模式强制只监听回环地址：/panel/ 页面本身不校验 api_key（只有面板 API 校验），
+	// 一旦绑到 0.0.0.0，同一 Wi-Fi 下任何人都能打开面板看到账号与积分。手机端不需要
+	// 被外部访问，故 listen 只用来取端口，主机位一律换成 127.0.0.1。
+	if taskOnly {
+		orig := cfg.Listen
+		cfg.Listen = loopbackListen(orig)
+		if cfg.Listen != orig {
+			log.Printf("任务模式：listen %s → %s（只允许本机访问面板）", orig, cfg.Listen)
+		}
+		if cfg.APIKey != "" {
+			// 手机 App 会自己写空 api_key 的配置；手搓 config.json 时若保留了自动生成的
+			// 随机密钥，面板就会要求填写。提示一句，省得以为面板坏了。
+			log.Printf("任务模式：config.json 的 api_key 非空，面板会要求填写该密钥（置空即为免密；只监听回环，风险可控）")
 		}
 	}
 
@@ -304,7 +335,10 @@ func main() {
 		RedisMode:   redisMode,
 		StickyCount: sessCount,
 		Version:     appVersion,
-		Live:        live,
+		// 运行模式透出到 /panel/api/overview：前端据此隐藏「用量 / 模型与档位」
+		// 等反代专属页面（任务模式没有 /v1 流量，那些页只会显示空数据）。
+		Mode: runMode,
+		Live: live,
 		// 模型上限探测数据（scripts/probe_max_tokens.py --panel-out 写入）：
 		// 与 state 文件同目录，缺省 data/output_probes.json。
 		ProbeFile:  stateSibling(cfg.StateFile, "output_probes.json"),
@@ -349,6 +383,8 @@ func main() {
 		// 模型黑名单原始条目；运行期以 livecfg 快照为准（热生效），此处供
 		// Live 为 nil 的裸用/测试路径。
 		ModelsHidden: cfg.Models.Hidden,
+		// 任务模式不注册 /v1 反代路由（手机端 App / 单机只做签到任务）。
+		TaskOnly: taskOnly,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -444,6 +480,23 @@ func panelListenPath(listen string) string {
 		}
 	}
 	return listen
+}
+
+// loopbackListen 把 listen 主机位强制换成本机回环，只保留端口（任务模式用）。
+// ":7863" / "0.0.0.0:7863" / "[::]:7863" / "192.168.1.5:7863" → "127.0.0.1:7863"；
+// 端口缺失或非纯数字（异常输入）时回落默认 127.0.0.1:7863，绝不回退成对外开放。
+func loopbackListen(listen string) string {
+	i := strings.LastIndex(listen, ":")
+	if i < 0 || i == len(listen)-1 {
+		return "127.0.0.1:7863"
+	}
+	port := listen[i+1:]
+	for _, c := range port {
+		if c < '0' || c > '9' {
+			return "127.0.0.1:7863"
+		}
+	}
+	return "127.0.0.1:" + port
 }
 
 // saveConfig 面板保存配置：校验 → 落盘 → 热应用 → 返回需重启的字段列表。

@@ -1265,9 +1265,9 @@ process.stdout.write(JSON.stringify({
 	}
 }
 
-// 账号备注：键取 uid 前 8 位（与 renderUsageDim 账号维度、积分扣除表的 uid 前缀同源，
-// 三个表格因此能直接 join）；有备注时备注当主标识、原昵称作浅色虚体跟随；备注来自本机
-// 输入，必须转义后才能拼进 innerHTML。
+// 账号备注：备注现在由服务端下发（auth 文件的 note 键），前端只负责展示拼接。
+// 有备注时备注当主标识、原昵称作浅色虚体跟随；备注来自用户输入，必须转义后才能拼进
+// innerHTML。用量表可能只传 uid 前 8 位，所以 rebuildNotes 同时建了完整 uid 与前 8 位两张表。
 func TestAppJSRemarkName(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -1278,23 +1278,22 @@ const vm = require('vm');
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const escStart = src.indexOf('function esc(');
 const escEnd = src.indexOf('function ago(');
-const start = src.indexOf('function remarkKey(');
-const end = src.indexOf('function storeRemarks(');
+const start = src.indexOf('let notesByUid = {');
+const end = src.indexOf('async function migrateLocalRemarks(');
 if (escStart < 0 || escEnd < 0) throw new Error('esc helpers not found');
 if (start < 0 || end < 0) throw new Error('remark helpers not found');
 const ctx = { String, RegExp, Number };
 vm.createContext(ctx);
 vm.runInContext(
   src.slice(escStart, escEnd) + src.slice(start, end) +
-  '\nconst REM = {abcdef12: "JTOL", deadbeef: "<b>x</b>"};' +
-  '\nfunction remarksAll() { return REM; }' +
-  '\nthis.remarkKey=remarkKey; this.remarkName=remarkName;',
+  '\nthis.rebuildNotes = rebuildNotes; this.remarkOf = remarkOf; this.remarkName = remarkName;' +
+  '\nrebuildNotes([{uid: "abcdef12-3456-7890", note: "JTOL"}, {uid: "deadbeef-0000-0000", note: "<b>x</b>"}]);',
   ctx
 );
 process.stdout.write(JSON.stringify({
-  key: ctx.remarkKey('ABCDEF1234567890'),
-  short: ctx.remarkKey('abc'),
-  empty: ctx.remarkKey(null),
+  short: ctx.remarkOf('abcdef12'),
+  full: ctx.remarkOf('abcdef12-3456-7890'),
+  empty: ctx.remarkOf(null),
   remarked: ctx.remarkName('abcdef12', '张三'),
   plain: ctx.remarkName('zzzzzzzz', '张三'),
   escaped: ctx.remarkName('deadbeef', 'n'),
@@ -1311,7 +1310,7 @@ process.stdout.write(JSON.stringify({
 	if err != nil {
 		t.Fatalf("remark name node test failed: %v\n%s", err, out)
 	}
-	const want = `{"key":"ABCDEF12","short":"abc","empty":"","remarked":"JTOL<span class=\"rm-ghost\">张三</span>","plain":"张三","escaped":"&lt;b&gt;x&lt;/b&gt;<span class=\"rm-ghost\">n</span>"}`
+	const want = `{"short":"JTOL","full":"JTOL","empty":"","remarked":"JTOL<span class=\"rm-ghost\">张三</span>","plain":"张三","escaped":"&lt;b&gt;x&lt;/b&gt;<span class=\"rm-ghost\">n</span>"}`
 	if strings.TrimSpace(string(out)) != want {
 		t.Fatalf("remark name=%s\nwant %s", strings.TrimSpace(string(out)), want)
 	}
@@ -1382,7 +1381,7 @@ func TestPanelRemarkAndFoldWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`id="btnRemarks"`, `id="remarkVeil"`, `id="remarkBody"`, `id="btnRemarkSave"`, `id="btnRemarkClear"`, `id="expPad"`, `id="btnExpFold"`, `id="compPad"`, `id="btnCompFold"`, `id="accFilter"`} {
+	for _, want := range []string{`id="btnRemarks"`, `id="remarkVeil"`, `id="remarkBody"`, `id="btnRemarkSave"`, `id="btnRemarkClear"`, `id="expPad"`, `id="btnExpFold"`, `id="compPad"`, `id="btnCompFold"`, `id="accFilter"`, `id="reqBox"`, `id="pkChips"`, `id="qcFilters"`} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Fatalf("index.html 缺少 %s", want)
 		}
@@ -1401,15 +1400,42 @@ func TestPanelRemarkAndFoldWiring(t *testing.T) {
 		"LS_REMARKS = 'wb2api.remarks.v1'",
 		"LS_EXP_FOLD = 'wb2api.expfold.v1'",
 		"LS_COMP_FOLD = 'wb2api.compfold.v1'",
-		"function remarkKey(",
-		"function remarkName(",
+		"function rebuildNotes(",
+		"function remarkOf(",
+		"function renderAccChips(",
 		"function applyExpFold(",
 		"function applyCompFold(",
 		"function accMatchFilter(",
+		"function renderPkChips(",
+		"function paintQueue(",
+		"Wb2ApiApp",
 	} {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Fatalf("app.js 缺少 %s", want)
 		}
+	}
+	// 桌面账号表必须真的产出 <tr>：一次误编辑曾把 return '<tr ...> 整段覆盖成
+	// 按钮串，语法仍然合法、页签/卡片照常渲染，只有桌面表格静默变空。
+	start := bytes.Index(js, []byte("function renderAccounts("))
+	if start < 0 {
+		t.Fatal("app.js 缺少 function renderAccounts(")
+	}
+	end := bytes.Index(js[start:], []byte("\nfunction "))
+	if end < 0 {
+		end = len(js) - start
+	}
+	body := string(js[start : start+end])
+	for _, want := range []string{`return '<tr class="`, "accountActions(s, frozen)"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("renderAccounts 缺少 %s（桌面账号表会静默为空）", want)
+		}
+	}
+	// 手机壳齿轮桥：Java 注入的对象名必须与 app.js 读的一致，否则弹层打开时
+	// 齿轮仍会盖住底部按钮（JS 找不到对象会静默跳过，测试/构建都发现不了）。
+	javaPath := filepath.Join("..", "..", "mobile", "app", "src", "main", "java",
+		"com", "wb2api", "tasks", "MainActivity.java")
+	if java, err := os.ReadFile(javaPath); err == nil && !bytes.Contains(java, []byte(`"Wb2ApiApp"`)) {
+		t.Fatalf("%s 缺少 JS 桥名 Wb2ApiApp", javaPath)
 	}
 }
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  图标前景：一个对勾（「签到 / 任务完成」）。108x108 画布，内容控制在中心 72x72
+  安全区内 —— 自适应图标在部分厂商 ROM 上会被裁成圆形/水滴形，超出安全区就切没了。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M40,55 L50,66 L69,43"
+        android:strokeColor="#3DDC97"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
+</vector>
