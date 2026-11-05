@@ -53,7 +53,13 @@ elif command -v gradle >/dev/null 2>&1; then
 else
   die "找不到 gradle（需要 8.7+），或直接在 Android Studio 里打开 mobile/ 目录构建"
 fi
-"$GRADLE" --console=plain :app:assembleDebug "$@"
+# 版本号唯一来源是 cmd/server/main.go；注入后 APK 的 versionName 与桌面端一致
+# （与 build-android.ps1 同口径，Android Studio 直接构建时仍用 gradle 里的兜底值）。
+VER=$(sed -n 's/.*appVersion = "\([^"]*\)".*/\1/p' "$ROOT/cmd/server/main.go")
+VER="${VER%-panel}"
+[ -n "$VER" ] || die "读取 appVersion 失败"
+echo "version: $VER (from cmd/server/main.go)"
+"$GRADLE" --console=plain "-PappVersion=$VER" :app:assembleDebug "$@"
 
 # 与 build_android.bat 保持同一出口：成品统一拷到仓库根的 dist/android/
 SRC="$APK_DIR/debug/app-debug.apk"

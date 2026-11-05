@@ -500,10 +500,6 @@ func summarizeCredits(entries []credithist.Entry, seed map[string]string, uid st
 	return sum
 }
 
-// creditHistory 返回积分变动流水（新的在前），供「运行日志 → 积分历史」展示。
-// limit 默认 200、上限 1000（与 requestLogs 同口径）；可带 uid 精确过滤。
-// 账号昵称在读取时用池快照填充——账本只存 uid，上游改名后旧流水也跟着更新，
-// 且留痕路径不必碰 auth 的昵称锁。
 // creditChartDays 每日增减图最多展示的天数（只数有记录的自然日，空白日不补）。
 const creditChartDays = 7
 
@@ -546,6 +542,10 @@ func creditDaily(entries []credithist.Entry, uid string) []creditDay {
 	return days
 }
 
+// creditHistory 返回积分变动流水（新的在前），供「运行日志 → 积分历史」展示。
+// limit 默认 200、上限 1000（与 requestLogs 同口径）；可带 uid 精确过滤。
+// 账号昵称在读取时用池快照填充——账本只存 uid，上游改名后旧流水也跟着更新，
+// 且留痕路径不必碰 auth 的昵称锁。
 func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 	if p.cfg.CreditHistory == nil {
 		writeErr(w, http.StatusNotImplemented, "credit history not available")
