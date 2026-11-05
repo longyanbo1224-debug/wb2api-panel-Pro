@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/auth"
 	"github.com/longyanbo1224-debug/wb2api-panel-Pro/internal/credithist"
@@ -261,5 +262,65 @@ func TestCreditHistoryRequiresAuth(t *testing.T) {
 	p.ServeHTTP(rr, req)
 	if rr.Code != 401 {
 		t.Fatalf("无 key 应回 401，得到 %d", rr.Code)
+	}
+}
+
+// 每日增减按整本流水按自然日求和，只保留最近 7 天，并跟随 uid 过滤。
+func TestCreditDailyAggregatesFullLedgerAndCapsSevenDays(t *testing.T) {
+	base := time.Date(2026, 11, 1, 12, 0, 0, 0, time.Local)
+	var entries []credithist.Entry
+	for i := 0; i < 9; i++ { // 11-01 .. 11-09，每天 u1 +10 / -3、u2 +999
+		day := base.AddDate(0, 0, i)
+		entries = append(entries,
+			credithist.Entry{Time: day, UID: "u1", Delta: 10},
+			credithist.Entry{Time: day.Add(time.Hour), UID: "u1", Delta: -3},
+			credithist.Entry{Time: day.Add(2 * time.Hour), UID: "u2", Delta: 999},
+		)
+	}
+	got := creditDaily(entries, "")
+	if len(got) != creditChartDays {
+		t.Fatalf("应有 %d 天，得到 %d: %+v", creditChartDays, len(got), got)
+	}
+	if first, last := got[0], got[len(got)-1]; first.Day != "2026-11-03" || last.Day != "2026-11-09" {
+		t.Fatalf("应只保留最近 7 天（11-03..11-09），得到 %s..%s", first.Day, last.Day)
+	}
+	if last := got[len(got)-1]; last.Gain != 10+999 || last.Spent != 3 {
+		t.Fatalf("按日求和不符: %+v", last)
+	}
+	if one := creditDaily(entries, "u2"); len(one) != creditChartDays || one[len(one)-1].Gain != 999 {
+		t.Fatalf("uid 过滤不符: %+v", one)
+	}
+}
+
+// 回归：明细被 limit 截断时，每日增减仍须反映整本流水。真实案例是默认 100 条
+// 只剩 11-04 的 3 条消耗，图表把当天 274 条流水里的 +2482 画成了 0。
+func TestCreditHistoryDailyIgnoresEntryLimit(t *testing.T) {
+	l := credithist.New("", 100)
+	l.Observe("u1", 0)
+	for i := 1; i <= 5; i++ {
+		l.Observe("u1", int64(i*10)) // +10 ×5
+	}
+	code, body := creditGet(t, creditPanel(t, l), "?limit=1")
+	if code != 200 {
+		t.Fatalf("GET credit_history -> %d %s", code, body)
+	}
+	var out struct {
+		Entries []struct {
+			Delta int64 `json:"delta"`
+		} `json:"entries"`
+		Daily []struct {
+			Day   string `json:"day"`
+			Gain  int64  `json:"gain"`
+			Spent int64  `json:"spent"`
+		} `json:"daily"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v\n%s", err, body)
+	}
+	if len(out.Entries) != 1 || out.Entries[0].Delta != 10 {
+		t.Fatalf("明细应按 limit=1 截断，得到 %+v", out.Entries)
+	}
+	if len(out.Daily) != 1 || out.Daily[0].Gain != 50 {
+		t.Fatalf("每日增减应为整本流水的 +50，得到 %+v\n%s", out.Daily, body)
 	}
 }

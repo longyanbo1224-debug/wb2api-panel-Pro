@@ -1222,32 +1222,18 @@ function renderCreditSummary(s) {
     '<td class="num">' + esc(creditSpentText(a.total_spent)) + '</td>' +
     '</tr>').join('');
 }
-// creditChartSeries 把流水按**浏览器本地自然日**聚合（获取 / 消耗分开），取最近
-// 14 个有记录的日子。只取有记录的日子而不是补齐空白天：条数上限（100/300/1000）
-// 未必覆盖整段窗口，补零会把「没读到」画成「当天没变动」。
-function creditChartSeries(entries) {
-  const byDay = new Map();
-  for (const e of entries || []) {
-    if (!e || !e.time) continue;
-    const d = new Date(e.time);
-    if (isNaN(d.getTime())) continue;
-    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
-      String(d.getDate()).padStart(2, '0');
-    let b = byDay.get(key);
-    if (!b) { b = { day: key, gain: 0, spent: 0 }; byDay.set(key, b); }
-    const delta = Number(e.delta || 0);
-    if (delta > 0) b.gain += delta;
-    else b.spent -= delta;
-  }
-  return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0)).slice(-14);
-}
-
 // renderCreditChart 每日增减的横向柱：每行一天，获取 / 消耗两条共用同一刻度，
 // 长度按区间内最大值归一，跨天直接比大小；数值直接标在右侧（手机无 hover）。
-function renderCreditChart(entries) {
+// daily 由服务端按**整本流水**汇总（最多最近 7 天）——不受「条数」下拉的明细窗口
+// 影响，否则半天数据会被画成整天（11-04 的获取因此显示过 0）。
+function renderCreditChart(daily) {
   const host = $('creditChart'), note = $('creditChartNote'), maxLab = $('creditChartMax');
   if (!host) return;
-  const days = creditChartSeries(entries);
+  const days = (daily || []).map(d => ({
+    day: String(d && d.day || ''),
+    gain: Number(d && d.gain || 0),
+    spent: Number(d && d.spent || 0),
+  })).filter(d => d.day);
   let gain = 0, spent = 0, max = 0;
   for (const d of days) {
     gain += d.gain;
@@ -1297,7 +1283,7 @@ function renderCreditHistory(d) {
   }
   const entries = d.entries || [];
   renderCreditSummary(d.summary);
-  renderCreditChart(entries);
+  renderCreditChart(d.daily);
   if (note) note.textContent = creditHistoryNote(entries);
   body.innerHTML = entries.length
     ? entries.map(e => '<tr>' +

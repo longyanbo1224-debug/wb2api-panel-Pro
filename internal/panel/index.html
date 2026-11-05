@@ -1297,11 +1297,11 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
 
     <!-- 积分历史（独立页）：账号汇总 与 变动明细 拆成两张卡，避免两个表贴在一起 -->
     <section class="view" id="view-credithist" hidden>
-      <!-- 每日增减：同一份流水按自然日汇总成双向柱（上获取 / 下消耗）。
-           数据随「条数」下拉重算，不额外请求上游。 -->
+      <!-- 每日增减：服务端按整本流水汇总成双向柱（上获取 / 下消耗），最多最近 7 天。
+           不随「条数」下拉变化——明细会截断，图表用截断结果会把半天画成整天。 -->
       <div class="box">
         <header>
-          <h3>每日增减 <span class="hint">按自然日汇总 · 零线上方为获取，下方为消耗</span></h3>
+          <h3>每日增减 <span class="hint">最近 7 天 · 按自然日汇总 · 零线上方为获取，下方为消耗</span></h3>
           <span class="grow"></span>
           <span class="note" id="creditChartNote">—</span>
         </header>

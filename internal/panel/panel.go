@@ -504,6 +504,48 @@ func summarizeCredits(entries []credithist.Entry, seed map[string]string, uid st
 // limit 默认 200、上限 1000（与 requestLogs 同口径）；可带 uid 精确过滤。
 // 账号昵称在读取时用池快照填充——账本只存 uid，上游改名后旧流水也跟着更新，
 // 且留痕路径不必碰 auth 的昵称锁。
+// creditChartDays 每日增减图最多展示的天数（只数有记录的自然日，空白日不补）。
+const creditChartDays = 7
+
+// creditDay 某自然日的积分获取 / 消耗合计。
+type creditDay struct {
+	Day   string `json:"day"`
+	Gain  int64  `json:"gain"`
+	Spent int64  `json:"spent"`
+}
+
+// creditDaily 按自然日汇总**整本流水**，升序返回最近 creditChartDays 天。
+// 明细受「条数」下拉截断，图表若用同一份截断结果会把半天画成整天（曾把
+// 11-04 的 +2482 显示成 0）——所以这里始终吃 Read(0) 的全量，且上限在服务端。
+func creditDaily(entries []credithist.Entry, uid string) []creditDay {
+	byDay := map[string]*creditDay{}
+	for _, e := range entries {
+		if uid != "" && e.UID != uid {
+			continue
+		}
+		day := e.Time.In(time.Local).Format("2006-01-02")
+		d := byDay[day]
+		if d == nil {
+			d = &creditDay{Day: day}
+			byDay[day] = d
+		}
+		if e.Delta > 0 {
+			d.Gain += e.Delta
+		} else {
+			d.Spent -= e.Delta
+		}
+	}
+	days := make([]creditDay, 0, len(byDay))
+	for _, d := range byDay {
+		days = append(days, *d)
+	}
+	sort.Slice(days, func(i, j int) bool { return days[i].Day < days[j].Day })
+	if len(days) > creditChartDays {
+		days = days[len(days)-creditChartDays:]
+	}
+	return days
+}
+
 func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 	if p.cfg.CreditHistory == nil {
 		writeErr(w, http.StatusNotImplemented, "credit history not available")
@@ -563,6 +605,7 @@ func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 		"entries": out,
 		"limit":   limit,
 		"summary": sum,
+		"daily":   creditDaily(all, uid),
 	})
 }
 

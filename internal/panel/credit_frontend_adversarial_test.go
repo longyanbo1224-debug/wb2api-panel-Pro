@@ -79,10 +79,9 @@ run('unavailableOk', () => ctx.renderCreditHistory(null));
 out.unavailableNote = els.creditNote.textContent;
 out.unavailableBody = els.creditBody.innerHTML;
 
-// 每日增减柱：同一天一涨一耗 → 两根柱 + 1 个日期标签，汇总文案涨/耗分开。
-run('chartOk', () => ctx.renderCreditHistory({ entries: [
-  { time: t, uid: 'u1', delta: 100, before: 0, after: 100 },
-  { time: t, uid: 'u1', delta: -30, before: 100, after: 70 },
+// 每日增减柱：服务端汇总好的一天一涨一耗 → 两根柱 + 1 个日期标签，汇总文案涨/耗分开。
+run('chartOk', () => ctx.renderCreditHistory({ daily: [
+  { day: '2026-09-28', gain: 100, spent: 30 },
 ] }));
 out.chartNote = els.creditChartNote.textContent;
 out.chartHtml = els.creditChart.innerHTML;
