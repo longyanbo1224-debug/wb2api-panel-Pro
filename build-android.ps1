@@ -292,9 +292,9 @@ gradle not found.
 Write-Host "    gradle: $gradle"
 
 # Version: single source of truth is appVersion in cmd/server/main.go (e.g.
-# "1.16.0-panel"). Strip the suffix and inject it into Gradle so the desktop
+# "1.16.1-panel"). Strip the suffix and inject it into Gradle so the desktop
 # engine and the APK can never drift apart.
-$appVersion = '1.16.0'
+$appVersion = '1.16.1'
 try {
     $mainGo = Get-Content (Join-Path $Root 'cmd\server\main.go') -Raw
     $m = [regex]::Match($mainGo, 'const\s+appVersion\s*=\s*"([^"]+)"')

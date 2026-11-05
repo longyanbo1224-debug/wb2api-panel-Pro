@@ -15,7 +15,7 @@ import (
 func creditPanel(t *testing.T, ledger *credithist.Ledger) *Panel {
 	t.Helper()
 	p := pool.New("")
-	p.Add(&auth.Auth{UID: "u1", Nickname: "小明"})
+	p.Add(&auth.Auth{UID: "u1", Nickname: "小明", Note: "主号"})
 	return New(Config{Version: "test", APIKey: "test-key", Pool: p, CreditHistory: ledger})
 }
 
@@ -33,6 +33,7 @@ type creditResp struct {
 		Time    string `json:"time"`
 		UID     string `json:"uid"`
 		Account string `json:"account"`
+		Note    string `json:"note"`
 		Delta   int64  `json:"delta"`
 		Before  int64  `json:"before"`
 		After   int64  `json:"after"`
@@ -48,6 +49,7 @@ type creditResp struct {
 		Accounts   []struct {
 			UID        string `json:"uid"`
 			Account    string `json:"account"`
+			Note       string `json:"note"`
 			TodayGain  int64  `json:"today_gain"`
 			TodaySpent int64  `json:"today_spent"`
 			TotalGain  int64  `json:"total_gain"`
@@ -118,8 +120,11 @@ func TestCreditHistoryEndpointShape(t *testing.T) {
 	if out.Entries[1].Account != "小明" {
 		t.Fatalf("昵称应由池快照填充，得到 %q", out.Entries[1].Account)
 	}
-	if out.Entries[0].Account != "" {
-		t.Fatalf("池内无此账号时应回空串，得到 %q", out.Entries[0].Account)
+	if out.Entries[1].Note != "主号" {
+		t.Fatalf("备注应由池快照填充，得到 %q", out.Entries[1].Note)
+	}
+	if out.Entries[0].Account != "" || out.Entries[0].Note != "" {
+		t.Fatalf("池内无此账号时应回空串，得到 account=%q note=%q", out.Entries[0].Account, out.Entries[0].Note)
 	}
 	if out.Entries[0].Time == "" {
 		t.Fatal("time 不应为空")
@@ -135,7 +140,7 @@ func TestCreditHistoryEndpointShape(t *testing.T) {
 	if len(s.Accounts) != 2 {
 		t.Fatalf("应有 u1/u2 两行账号汇总，得到 %+v", s.Accounts)
 	}
-	if s.Accounts[0].UID != "u1" || s.Accounts[0].Account != "小明" || s.Accounts[0].TodayGain != 100 {
+	if s.Accounts[0].UID != "u1" || s.Accounts[0].Account != "小明" || s.Accounts[0].Note != "主号" || s.Accounts[0].TodayGain != 100 {
 		t.Fatalf("u1 汇总不符: %+v", s.Accounts[0])
 	}
 	if s.Accounts[1].UID != "u2" || s.Accounts[1].Account != "u2" || s.Accounts[1].TodayGain != 20 {

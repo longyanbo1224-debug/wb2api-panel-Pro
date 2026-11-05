@@ -208,6 +208,10 @@ final class Ui {
         root.addView(cancel, clp);
 
         d.setContentView(root);
+        // 点抽屉外的空白（遮罩区）直接收回：底部抽屉的标准手势，
+        // 不该逼用户去点「取消」。窗口只包住抽屉本体，空白区在窗口外，
+        // setCanceledOnTouchOutside 靠 WATCH_OUTSIDE_TOUCH 接住这个点击。
+        d.setCanceledOnTouchOutside(true);
         Window w = d.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));

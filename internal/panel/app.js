@@ -1164,7 +1164,9 @@ function creditTimeText(e) {
 }
 function creditAccountText(e) {
   e = e || {};
-  return e.account ? String(e.account) : (e.uid || '—');
+  const who = e.account ? String(e.account) : (e.uid || '—');
+  const note = e.note ? String(e.note).trim() : '';
+  return note ? who + '（' + note + '）' : who;
 }
 function creditBalanceText(e) {
   return creditNum(e && e.after);
@@ -1213,24 +1215,89 @@ function renderCreditSummary(s) {
   box.hidden = false;
   if (note) note.textContent = creditSummaryText(s);
   body.innerHTML = rows.map(a => '<tr>' +
-    '<td>' + esc(a.account || a.uid || '—') + '</td>' +
+    '<td>' + esc(creditAccountText(a)) + '</td>' +
     '<td class="num">' + esc(creditDeltaText(a.today_gain)) + '</td>' +
     '<td class="num">' + esc(creditSpentText(a.today_spent)) + '</td>' +
     '<td class="num">' + esc(creditDeltaText(a.total_gain)) + '</td>' +
     '<td class="num">' + esc(creditSpentText(a.total_spent)) + '</td>' +
     '</tr>').join('');
 }
+// creditChartSeries 把流水按**浏览器本地自然日**聚合（获取 / 消耗分开），取最近
+// 14 个有记录的日子。只取有记录的日子而不是补齐空白天：条数上限（100/300/1000）
+// 未必覆盖整段窗口，补零会把「没读到」画成「当天没变动」。
+function creditChartSeries(entries) {
+  const byDay = new Map();
+  for (const e of entries || []) {
+    if (!e || !e.time) continue;
+    const d = new Date(e.time);
+    if (isNaN(d.getTime())) continue;
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    let b = byDay.get(key);
+    if (!b) { b = { day: key, gain: 0, spent: 0 }; byDay.set(key, b); }
+    const delta = Number(e.delta || 0);
+    if (delta > 0) b.gain += delta;
+    else b.spent -= delta;
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0)).slice(-14);
+}
+
+// renderCreditChart 每日增减的横向柱：每行一天，获取 / 消耗两条共用同一刻度，
+// 长度按区间内最大值归一，跨天直接比大小；数值直接标在右侧（手机无 hover）。
+function renderCreditChart(entries) {
+  const host = $('creditChart'), note = $('creditChartNote'), maxLab = $('creditChartMax');
+  if (!host) return;
+  const days = creditChartSeries(entries);
+  let gain = 0, spent = 0, max = 0;
+  for (const d of days) {
+    gain += d.gain;
+    spent += d.spent;
+    max = Math.max(max, d.gain, d.spent);
+  }
+  if (note) {
+    note.textContent = days.length
+      ? '近 ' + days.length + ' 天 · 获取 ' + creditDeltaText(gain) + ' · 消耗 ' + creditSpentText(spent)
+      : '暂无积分变动';
+  }
+  if (maxLab) maxLab.textContent = max > 0 ? '最大 ' + creditNum(max) : '—';
+  if (!days.length) {
+    host.innerHTML = '<div class="us-empty">暂无积分变动记录</div>';
+    return;
+  }
+  const pct = v => (max > 0 && v > 0) ? Math.max(2, Math.round(v / max * 100)) : 0;
+  const axis = max > 0 ? '<span class="cr-axis" aria-hidden="true"></span>' : '';
+  const aria = '近 ' + days.length + ' 天积分增减：获取 ' + creditDeltaText(gain) +
+    '，消耗 ' + creditSpentText(spent);
+  // 新的在上：与下方「变动明细」的排序一致，今天的涨耗不用先扫到底部。
+  host.innerHTML = '<div class="cr-plot" role="img" aria-label="' + esc(aria) + '">' +
+    days.slice().reverse().map(d => {
+      const tip = d.day + ' · 获取 ' + creditDeltaText(d.gain) + ' · 消耗 ' + creditSpentText(d.spent);
+      return '<div class="cr-row" title="' + esc(tip) + '">' +
+        '<span class="cr-lab">' + esc(d.day.slice(5)) + '</span>' +
+        '<span class="cr-track">' +
+          '<span class="cr-line"><i class="cr-bar cr-gain" style="width:' + pct(d.gain) + '%"></i></span>' +
+          '<span class="cr-line"><i class="cr-bar cr-spend" style="width:' + pct(d.spent) + '%"></i></span>' +
+          axis +
+        '</span>' +
+        '<span class="cr-vals"><b class="g">' + esc(creditDeltaText(d.gain)) + '</b>' +
+          '<b class="s">' + esc(creditSpentText(d.spent)) + '</b></span>' +
+        '</div>';
+    }).join('') + '</div>';
+}
+
 function renderCreditHistory(d) {
   const body = $('creditBody'), note = $('creditNote');
   if (!body) return;
   if (!d) {
     renderCreditSummary(null);
+    renderCreditChart([]);
     if (note) note.textContent = '积分历史不可用';
     body.innerHTML = '<tr><td colspan="5" style="color:var(--ink-3)">积分历史不可用</td></tr>';
     return;
   }
   const entries = d.entries || [];
   renderCreditSummary(d.summary);
+  renderCreditChart(entries);
   if (note) note.textContent = creditHistoryNote(entries);
   body.innerHTML = entries.length
     ? entries.map(e => '<tr>' +

@@ -136,7 +136,7 @@ func TestBndCreditHistoryFullLedgerFieldTypes(t *testing.T) {
 		t.Fatalf("2000 条账本 limit=100 应只回 100 条，得到 %d", len(rawResp.Entries))
 	}
 	first := rawResp.Entries[0]
-	for _, k := range []string{"time", "uid", "account", "delta", "before", "after"} {
+	for _, k := range []string{"time", "uid", "account", "note", "delta", "before", "after"} {
 		if _, ok := first[k]; !ok {
 			t.Fatalf("字段 %s 缺失: %s", k, body)
 		}

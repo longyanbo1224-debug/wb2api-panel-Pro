@@ -79,6 +79,15 @@ run('unavailableOk', () => ctx.renderCreditHistory(null));
 out.unavailableNote = els.creditNote.textContent;
 out.unavailableBody = els.creditBody.innerHTML;
 
+// 每日增减柱：同一天一涨一耗 → 两根柱 + 1 个日期标签，汇总文案涨/耗分开。
+run('chartOk', () => ctx.renderCreditHistory({ entries: [
+  { time: t, uid: 'u1', delta: 100, before: 0, after: 100 },
+  { time: t, uid: 'u1', delta: -30, before: 100, after: 70 },
+] }));
+out.chartNote = els.creditChartNote.textContent;
+out.chartHtml = els.creditChart.innerHTML;
+out.chartMax = els.creditChartMax.textContent;
+
 process.stdout.write(JSON.stringify(out));`
 
 func TestBndCreditFrontendAdversarial(t *testing.T) {
@@ -147,6 +156,26 @@ func TestBndCreditFrontendAdversarial(t *testing.T) {
 	}
 	if body := str("unavailableBody"); !strings.Contains(body, "积分历史不可用") || strings.Contains(body, "暂无") {
 		t.Fatalf("不可用表格文案不符: %s", body)
+	}
+
+	// 每日增减柱：涨/耗各一根，日期标签 1 个，汇总行分开报。
+	ok("chartOk")
+	if note := str("chartNote"); note != "近 1 天 · 获取 +100 · 消耗 −30" {
+		t.Fatalf("图表汇总应涨耗分列，得到 %q", note)
+	}
+	chart := str("chartHtml")
+	if !strings.Contains(chart, "cr-gain") || !strings.Contains(chart, "cr-spend") {
+		t.Fatalf("同一天既有涨又有耗时应渲染两根柱: %s", chart)
+	}
+	if n := strings.Count(chart, "cr-lab"); n != 1 {
+		t.Fatalf("同一天应只有 1 个日期标签，得到 %d: %s", n, chart)
+	}
+	// 最大值虚线 + 图例标注：刻度末端画参考线，最大值的数值要标出来。
+	if !strings.Contains(chart, "cr-axis") {
+		t.Fatalf("缺少最大值虚线: %s", chart)
+	}
+	if got := str("chartMax"); got != "最大 100" {
+		t.Fatalf("最大值标注应为「最大 100」，得到 %q", got)
 	}
 }
 

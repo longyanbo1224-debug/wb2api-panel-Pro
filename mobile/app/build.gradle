@@ -19,7 +19,7 @@ android {
         // 版本号的唯一来源是 cmd/server/main.go 的 appVersion（不带 -panel 后缀）。
         // build-android.ps1 会读出来并通过 -PappVersion=... 注入，所以桌面端与手机端
         // 永远不会漂移；直接在 Android Studio 里构建时用下面的兜底值，发版时同步改它。
-        versionName (findProperty('appVersion') ?: '1.16.0').toString()
+        versionName (findProperty('appVersion') ?: '1.16.1').toString()
         // 只打 arm64：现代手机全支持，包体减半（Go 二进制每个 ABI 约 8-10MB）。
         ndk { abiFilters 'arm64-v8a' }
     }

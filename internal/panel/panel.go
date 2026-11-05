@@ -401,8 +401,10 @@ func (p *Panel) requestLogs(w http.ResponseWriter, r *http.Request) {
 // creditAccountSum 单账号积分汇总：今日（本地自然日）与累计的获取/消耗。
 // 涨与消耗分开统计：净额（涨−消耗）无法说明"领了多少、花掉多少"。
 type creditAccountSum struct {
-	UID        string `json:"uid"`
-	Account    string `json:"account"`
+	UID     string `json:"uid"`
+	Account string `json:"account"`
+	// Note 账号备注（auth 文件 note 键，读取时由池快照填充）。
+	Note       string `json:"note,omitempty"`
 	TodayGain  int64  `json:"today_gain"`
 	TodaySpent int64  `json:"today_spent"`
 	TotalGain  int64  `json:"total_gain"`
@@ -521,9 +523,13 @@ func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 	// 汇总的账号种子用池全量 uid（含无昵称的账号）；nicknames() 只收有昵称的条目，
 	// 直接拿它当种子会让未命名账号在「今日无变动」时从汇总表里消失。
 	seed := make(map[string]string)
+	notes := make(map[string]string)
 	if p.cfg.Pool != nil {
 		for _, s := range p.cfg.Pool.List() {
 			seed[s.UID] = s.Nickname
+			if s.Note != "" {
+				notes[s.UID] = s.Note
+			}
 		}
 	}
 	// 汇总需要整本流水，故总是全量取回（账本上限默认 2000 条，拷贝成本可忽略）；
@@ -539,6 +545,7 @@ func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 			"time":    e.Time,
 			"uid":     e.UID,
 			"account": nicks[e.UID],
+			"note":    notes[e.UID],
 			"delta":   e.Delta,
 			"before":  e.Before,
 			"after":   e.After,
@@ -547,10 +554,15 @@ func (p *Panel) creditHistory(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// 汇总行同样带上备注：账号列展示「昵称（备注）」，与明细同口径。
+	sum := summarizeCredits(all, seed, uid, since, totals)
+	for i := range sum.Accounts {
+		sum.Accounts[i].Note = notes[sum.Accounts[i].UID]
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries": out,
 		"limit":   limit,
-		"summary": summarizeCredits(all, seed, uid, since, totals),
+		"summary": sum,
 	})
 }
 

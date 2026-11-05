@@ -210,6 +210,10 @@
   .uschart-body .tk-peak { font-size: 14px; }
   .uschart-body .usbar-p { fill: var(--accent); }
   .uschart-body .usbar-c { fill: var(--ok); }
+  /* 积分历史每日增减：横向柱，窄屏把日期列与数值列收紧一点即可全部放下。 */
+  .cr-plot { gap: 5px; }
+  .cr-row { grid-template-columns: 36px minmax(0, 1fr) 52px; gap: 6px; }
+  .cr-line { height: 6px; }
 
   /* 任务弹窗卡：任务+状态 / 进度·奖励 / 按钮 */
   #taskBody tr > .who { grid-column: 1 / 9; }
@@ -287,6 +291,11 @@
      余额口径文字变长，窄屏直接撑破整页（实测 563px）。用量页那条 id 限定的「单行截断」
      规则特异性更高，仍按上游保持省略号，不受这里影响。 */
   .box > header .note { white-space: normal; }
+  /* 到期提醒 / 官方补偿的 note 文案随刷新状态变长短（快照 ↔ 查询中… ↔ 实时查询上游）。
+     窄屏盒头会换行：短文案会跟后面的按钮挤在同一行，把「检查」「收起」左右带跑
+     （点一下按钮，按钮自己就滑到右边）。让 note 独占一行，按钮的位置就只由
+     前面的标题行决定，与文案长短无关。 */
+  #expBox > header .note, #compBox > header .note { flex: 1 1 100%; }
   .box .pad { padding: 11px; }
   .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); }
   /* 任务中心：与「任务」抽屉同形的卡片（标题/状态 → 进度 → 说明）。

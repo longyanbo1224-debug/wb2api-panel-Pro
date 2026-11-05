@@ -451,6 +451,31 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
   .uschart-body rect.usbar:hover { opacity: .78; }
   .uschart-body .us-empty { padding: 30px 0; text-align: center; color: var(--ink-3); font-size: 12.5px; }
 
+  /* 积分历史的每日增减横向柱：每行一天，获取/消耗两条共用同一刻度。
+     数值直接标在右侧——手机没有 hover，不能只靠 title。 */
+  .uschart-hd .sw-gain { background: var(--ok); }
+  .uschart-hd .sw-spend { background: var(--bad); }
+  .uschart-hd .sw-max { height: 2px; border-radius: 0; align-self: center;
+    background: repeating-linear-gradient(90deg, var(--ink-3) 0 2px, transparent 2px 4px); }
+  .cr-plot { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 2px; }
+  .cr-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 58px;
+    align-items: center; gap: 8px; }
+  .cr-lab { color: var(--ink-3); font: 10px var(--mono); white-space: nowrap; }
+  .cr-track { position: relative; display: flex; flex-direction: column; gap: 3px; }
+  /* 最大值虚线：每行在刻度末端画一段，上下各溢出 3px 接住行距，连起来是整条参考线。 */
+  .cr-axis { position: absolute; top: -3px; bottom: -3px; right: 0; width: 0;
+    border-left: 1px dashed var(--ink-3); opacity: .55; }
+  .cr-line { display: block; height: 7px; border-radius: 3px;
+    background: var(--line-soft); overflow: hidden; }
+  .cr-bar { display: block; height: 100%; border-radius: 3px; transition: opacity .12s; }
+  .cr-gain { background: var(--ok); }
+  .cr-spend { background: var(--bad); }
+  .cr-row:hover .cr-bar { opacity: .78; }
+  .cr-vals { display: flex; flex-direction: column; gap: 1px; text-align: right;
+    font: 10px/1.25 var(--mono); }
+  .cr-vals .g { color: var(--ok); }
+  .cr-vals .s { color: var(--bad); }
+
   /* 用量表内的 prompt/completion 占比条。用 .us-mix 而不是复用账号池的 .bar：
      全局 .bar 是块级容器（积分条），同优先级下会互相覆盖（v1.9.0 回归）。 */
   .us-mix { display: flex; height: 3px; border-radius: 2px; overflow: hidden;
@@ -1272,6 +1297,32 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
 
     <!-- 积分历史（独立页）：账号汇总 与 变动明细 拆成两张卡，避免两个表贴在一起 -->
     <section class="view" id="view-credithist" hidden>
+      <!-- 每日增减：同一份流水按自然日汇总成双向柱（上获取 / 下消耗）。
+           数据随「条数」下拉重算，不额外请求上游。 -->
+      <div class="box">
+        <header>
+          <h3>每日增减 <span class="hint">按自然日汇总 · 零线上方为获取，下方为消耗</span></h3>
+          <span class="grow"></span>
+          <span class="note" id="creditChartNote">—</span>
+        </header>
+        <div class="pad">
+          <div class="uschart">
+            <div class="uschart-hd">
+              <span class="lb">积分变动</span>
+              <span class="grow"></span>
+              <span class="legend">
+                <i class="sw sw-gain"></i>获取
+                <span class="sep"></span>
+                <i class="sw sw-spend"></i>消耗
+                <span class="sep"></span>
+                <i class="sw sw-max"></i><span id="creditChartMax">—</span>
+              </span>
+            </div>
+            <div id="creditChart" class="uschart-body"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="box" id="creditSumBox" hidden>
         <header>
           <h3>账号汇总 <span class="hint">每个账号今日 / 累计的涨与耗</span></h3>

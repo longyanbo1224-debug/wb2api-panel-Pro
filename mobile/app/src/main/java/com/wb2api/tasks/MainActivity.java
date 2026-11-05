@@ -30,6 +30,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.TimeZone;
+
 /**
  * 唯一界面：把本机引擎的面板装进 WebView。
  *
@@ -570,6 +572,12 @@ public class MainActivity extends Activity {
             }
             String tz = tzIn.getText().toString().trim();
             if (tz.isEmpty()) tz = "Asia/Shanghai";
+            // 未知 ID 会被 java.util.TimeZone 兜底成 GMT。提前拦住：引擎侧
+            // LoadLocation 失败只会 WARN 后沿用 UTC，「今日」和排程会整体偏 8 小时。
+            if (!TimeZone.getTimeZone(tz).getID().equals(tz)) {
+                toast("时区无效，请填 IANA 名称（如 Asia/Shanghai）");
+                return;
+            }
             p.setPort(port);
             p.setTz(tz);
             // 端口要写回 config.json（引擎按配置监听），时区靠 TZ 环境变量。
